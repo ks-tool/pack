@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -89,7 +90,8 @@ type Client struct {
 	Password  string
 	HTTP      *http.Client // nil: a default with a timeout
 
-	tokens map[string]string // realm+scope → bearer token
+	mu     sync.Mutex
+	tokens map[string]string // realm+scope → bearer token; guarded by mu — members are read concurrently
 }
 
 // Manifest media types the reader accepts, most specific first.
@@ -213,6 +215,8 @@ func (c *Client) get(ctx context.Context, host, repo, path, accept string) (*htt
 }
 
 func (c *Client) cachedToken(repo string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if t, ok := c.tokens[repo]; ok {
 		return "Bearer " + t
 	}
@@ -271,10 +275,12 @@ func (c *Client) authorize(ctx context.Context, challenge, repo string) (string,
 		if len(tok.Token) == 0 {
 			return "", fmt.Errorf("token from %s: empty", p["realm"])
 		}
+		c.mu.Lock()
 		if c.tokens == nil {
 			c.tokens = map[string]string{}
 		}
 		c.tokens[repo] = tok.Token
+		c.mu.Unlock()
 		return "Bearer " + tok.Token, nil
 	}
 	return "", fmt.Errorf("unsupported challenge %q", challenge)

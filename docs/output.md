@@ -47,7 +47,7 @@ spec:
       readiness: {tcp: {port: 9092}}          # x-pack.readiness by port number
       volumes:
       - mountPath: /var/lib/kafka/data         # claims.data
-        volume: {pv: {size: 4Ti, storageClass: nvme}}
+        volume: {pv: {size: 4Ti}}
       - mountPath: /opt/java                   # the jdk library: x-pack-mount
         merge: true
         volume: {image: {reference: localhost:5001/images/jdk:21.0.4}}
@@ -160,7 +160,6 @@ written here:
 | field | meaning |
 |---|---|
 | `spec.readiness` | `{tcp: {port}}`, `{http: {port, path}}`, `{exec: […]}` — what the set counts a child ready by; today a child is "running" once its node reports the process up |
-| `volume.pv.storageClass` | the class the claim asks for |
 
 Until then the output is reviewable, testable, diffable — and applied by
 the tool's phase-2 `apply` once the fields land.
@@ -196,7 +195,6 @@ today, and what they mean:
 | `volumes[].volume.secret.substitute` | secrets whose `${secret:name/key}` placeholders the agent resolves while materialising the config; a placeholder outside the list is an error, not silence |
 | `volumes[].volume.secret.items[].key` with `${horchestra.index}` | the set controller substitutes the child's index (also `ordinal`, `instance`) |
 | `spec.readiness` | `{tcp: {port}}`, `{http: {port, path}}`, `{exec: […]}` — what the set counts a child ready by |
-| `volume.pv.storageClass` | the class the claim asks for |
 | `type: horchestra.io/config` on a Secret | a config file, not a credential |
 
 Until then the output is reviewable, testable, diffable — and applied by

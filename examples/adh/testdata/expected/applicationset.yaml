@@ -111,7 +111,6 @@ spec:
         volume:
           pv:
             size: 4Ti
-            storageClass: nvme
       - merge: true
         mountPath: /opt/java
         volume:

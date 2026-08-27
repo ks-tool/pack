@@ -121,12 +121,11 @@ type Claims struct {
 // packschema.Claim:
 //   MountPath    string `json:"mountPath" pack:"const"`
 //   Size         string `json:"size" pack:"default"`
-//   StorageClass string `json:"storageClass,omitempty"`
 ```
 
 Each claim becomes a `pv` volume at `mountPath`. The path is the image's
 fact; the size defaults from `Defaults()` and the operator overrides size
-and class in the values (`claims: {data: {size: 4Ti, storageClass: nvme}}`).
+in the values (`claims: {data: {size: 4Ti}}`).
 
 ## 5. Files
 

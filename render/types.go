@@ -116,8 +116,7 @@ type VolumeSource struct {
 }
 
 type PVVolume struct {
-	Size         string `json:"size"`
-	StorageClass string `json:"storageClass,omitempty"` // phase 2
+	Size string `json:"size"`
 }
 
 type ImageVolume struct {
@@ -157,7 +156,7 @@ type Secret struct {
 	Kind       string            `json:"kind"`
 	Metadata   ObjectMeta        `json:"metadata"`
 	Type       string            `json:"type"`
-	Immutable bool `json:"immutable,omitempty"`
+	Immutable  bool              `json:"immutable,omitempty"`
 	StringData map[string]string `json:"stringData,omitempty"`
 	Data       map[string]string `json:"data,omitempty"`
 }

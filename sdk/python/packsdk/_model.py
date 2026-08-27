@@ -162,7 +162,6 @@ class Claim:
     """A persistent volume: mountPath a fact, size and class settings."""
     mount_path: str = const("", json="mountPath", pattern="^/", required=True)
     size: str = default("")
-    storage_class: str = operator(json="storageClass")
 
     @classmethod
     def at(cls, mount_path: str, size: str) -> "Claim":

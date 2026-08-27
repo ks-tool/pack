@@ -211,7 +211,7 @@ func (r *render) component(key string) (*NamedApplicationSpec, []Secret, error) 
 		for _, name := range sortedKeys(cm) {
 			c, _ := cm[name].(map[string]any)
 			app.Spec.Volumes = append(app.Spec.Volumes, VolumeMount{MountPath: str(c["mountPath"]),
-				Volume: VolumeSource{PV: &PVVolume{Size: str(c["size"]), StorageClass: str(c["storageClass"])}}})
+				Volume: VolumeSource{PV: &PVVolume{Size: str(c["size"])}}})
 		}
 	}
 	for _, lib := range libs {

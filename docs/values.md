@@ -14,7 +14,7 @@ values:
       replicas: 3
       resources: {requests: {cpu: "8", memory: "32Gi"}, limits: {memory: "32Gi"}}
       placement: {queue: data-prod}
-    claims: {data: {size: 4Ti, storageClass: nvme}}
+    claims: {data: {size: 4Ti}}
     conf: {min.insync.replicas: 2}
     jaas: {password: {secretRef: {name: prod-kafka-sasl, key: password}}}
   ranger-db:

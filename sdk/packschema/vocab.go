@@ -141,7 +141,6 @@ func (s Secret) IsZero() bool {
 // Claim is one volume a component needs: where it is mounted is the
 // component's fact, how big and on what class is the operator's setting.
 type Claim struct {
-	MountPath    string `json:"mountPath" jsonschema:"required,pattern=^/" pack:"const"`
-	Size         string `json:"size" pack:"default"`
-	StorageClass string `json:"storageClass,omitempty"`
+	MountPath string `json:"mountPath" jsonschema:"required,pattern=^/" pack:"const"`
+	Size      string `json:"size" pack:"default"`
 }

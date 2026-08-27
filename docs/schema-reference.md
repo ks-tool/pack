@@ -177,5 +177,5 @@ Standard keywords come from `jsonschema:"…"` tags (`invopop/jsonschema`):
 |---|---|---|
 | `sdk.Workload` | `scale` (const) and `platform` (`$ref` to the platform half with a default) | embed it; `sdk.Single(cpu, mem)`, `sdk.Replicated(n, cpu, mem)` |
 | `sdk.Platform` | the platform half's value type | the `default` under `platform` |
-| `packschema.Claim` | `{mountPath: const, size: default, storageClass}` | one volume |
+| `packschema.Claim` | `{mountPath: const, size: default}` | one volume |
 | `packschema.Secret` | `{type: string, format: password}` | a credential leaf |

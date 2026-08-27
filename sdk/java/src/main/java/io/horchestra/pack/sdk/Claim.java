@@ -6,8 +6,6 @@ public final class Claim {
     public String mountPath;
     @Pack(kind = Pack.Kind.DEFAULT)
     public String size;
-    @Pack(json = "storageClass")
-    public String storageClass;
 
     public Claim() {}
 

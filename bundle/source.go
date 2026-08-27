@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -92,7 +93,20 @@ type registrySource struct {
 	ref     registry.Ref
 	root    *Files
 	members map[string]ocispec.Descriptor // io.horchestra.name → member index, once listed
+	// read is every member's files, fetched together the first time any member is asked for:
+	// a pack's members are independent artifacts, and reading them one after another made the
+	// registry round trips the whole cost of a render (27 members: 236 requests, 20 s on a LAN).
+	read map[string]memberFiles
 }
+
+type memberFiles struct {
+	files *Files
+	err   error
+}
+
+// registryWorkers bounds how many members are read at once — enough to hide the round-trip
+// latency, few enough that a registry's rate limit is not the next error.
+const registryWorkers = 8
 
 // Registry is the source rooted at a registry reference: the index the
 // reference names, and the artifacts mounted into it. Only manifests, the
@@ -133,7 +147,7 @@ func (r *registrySource) Member(name string) (*Files, error) {
 			return nil, err
 		}
 	}
-	d, ok := r.members[name]
+	m, ok := r.read[name]
 	if !ok {
 		if len(r.members) == 0 {
 			return nil, fmt.Errorf("%s: nothing named %q is mounted into it — a component's libraries are members of the pack, or mounted into the component itself when it is to be rendered alone", r.ref, name)
@@ -145,11 +159,25 @@ func (r *registrySource) Member(name string) (*Files, error) {
 		sort.Strings(names)
 		return nil, fmt.Errorf("%s: no member named %q (members: %s)", r.ref, name, strings.Join(names, ", "))
 	}
-	idx, err := r.index(d.Digest.String())
-	if err != nil {
-		return nil, err
+	return m.files, m.err
+}
+
+// parallel runs fn over n items with at most registryWorkers in flight and waits for all of
+// them. Each item owns its slot in whatever fn writes to, so the result is the same whatever
+// order the registry answered in.
+func parallel(n int, fn func(i int)) {
+	sem := make(chan struct{}, registryWorkers)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			fn(i)
+		}()
 	}
-	return r.files(idx, d.Digest.String())
+	wg.Wait()
 }
 
 // list reads every index mounted into the root and remembers it by name: a
@@ -166,16 +194,24 @@ func (r *registrySource) list() error {
 	if err := json.Unmarshal(body, &idx); err != nil {
 		return err
 	}
-	r.members = map[string]ocispec.Descriptor{}
+	// Every member's index at once, then every member's files at once: the two rounds are all
+	// the registry sees of a render, and neither depends on the order the answers arrive in.
+	var subs []ocispec.Descriptor
 	for _, m := range idx.Manifests {
-		if !isIndex(m.MediaType) {
-			continue
+		if isIndex(m.MediaType) {
+			subs = append(subs, m)
 		}
-		sub, err := r.index(m.Digest.String())
-		if err != nil {
-			return err
+	}
+	indexes := make([]ocispec.Index, len(subs))
+	errs := make([]error, len(subs))
+	parallel(len(subs), func(i int) { indexes[i], errs[i] = r.index(subs[i].Digest.String()) })
+	r.members = map[string]ocispec.Descriptor{}
+	var named []int
+	for i, m := range subs {
+		if errs[i] != nil {
+			return errs[i]
 		}
-		name := sub.Annotations[AnnotationName]
+		name := indexes[i].Annotations[AnnotationName]
 		if len(name) == 0 {
 			name = m.Annotations[AnnotationName]
 		}
@@ -186,6 +222,26 @@ func (r *registrySource) list() error {
 			return fmt.Errorf("%s: two members named %q — one version of a component per pack", r.ref, name)
 		}
 		r.members[name] = m
+		named = append(named, i)
+	}
+	read := make([]memberFiles, len(named))
+	parallel(len(named), func(j int) {
+		i := named[j]
+		f, err := r.files(indexes[i], subs[i].Digest.String())
+		read[j] = memberFiles{files: f, err: err}
+	})
+	r.read = map[string]memberFiles{}
+	for j, i := range named {
+		r.read[indexes[i].Annotations[AnnotationName]] = read[j]
+	}
+	for name, m := range r.members {
+		if _, ok := r.read[name]; !ok { // named by the member descriptor, not the nested index
+			for j, i := range named {
+				if subs[i].Digest == m.Digest {
+					r.read[name] = read[j]
+				}
+			}
+		}
 	}
 	return nil
 }
