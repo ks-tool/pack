@@ -1,0 +1,9 @@
+type: application/vnd.horchestra.component.v1+json
+annotations: {io.horchestra.name: postgres, io.horchestra.version: "16.3"}
+items:
+  - from: cr://localhost:5001/images/postgres:16.3
+    platform: linux/arm64
+  - from: file://schema.json
+    type: application/vnd.horchestra.component.schema.v1+json
+  - from: dir://templates/
+    type: application/vnd.horchestra.template.v1

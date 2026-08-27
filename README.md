@@ -1,0 +1,144 @@
+# pack — a package format for horchestra, and the tool that renders it
+
+`pack` turns a **component schema** (a JSON Schema generated from Go) plus a **values document** into what horchestra
+runs: an `ApplicationSet` and the
+`Secret`s that carry its configuration files. It needs no cluster and no network — every input is a directory on disk,
+every output is YAML.
+
+```
+Go structs ──go generate──▶ schema.json ──┐
+                                          ├── pack template ──▶ applicationset.yaml + secrets/*.yaml + report.yaml
+values.yaml ──────────────────────────────┘
+```
+
+The tool is **phase 1** of the pack design: the format, the authoring workflow and the renderer. Phase 2 is horchestra
+learning the handful of fields the output already carries (`merge`/`substitute` on a secret mount,
+`readiness`, `${horchestra.index}` in a mount item). See
+[docs/output.md](docs/output.md#what-horchestra-does-not-know-yet).
+
+## Concepts
+
+| term                   | what it is                                                                                                                                                                                        | where it lives                                                                           |
+|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| **component**          | one application: its image, the schema of its values, and — inside the schema — how its config files, argv and environment are made, what it needs from neighbours and libraries, how it upgrades | a directory: `schema.json`, `templates/`, `image.json`, `pack.yaml`                      |
+| **library**            | a component without a workload of its own — layers (a JDK, plugins) mounted into a consumer, and settings the consumer's values carry under its key                                               | same shape, no `platform`/`ports`/`scale`                                                |
+| **composition** (pack) | the keys of a system, each a `$ref` to a component by name, and what no component can know: who is whose neighbour when the type is ambiguous, ordering, spread, savepoints of the upgrade saga   | a directory with the composition's `schema.json`; components are the sibling directories |
+| **values document**    | what the operator writes: one tree shaped by the composition's effective schema                                                                                                                   | a YAML file                                                                              |
+| **output**             | `ApplicationSet` + config `Secret`s + report                                                                                                                                                      | `-o <dir>` or stdout                                                                     |
+
+Both the component and the composition are **JSON Schema documents**. The vocabulary the tool adds — `x-pack-file`,
+`x-pack-arg`, `x-pack-env`,
+`x-pack-compute`, `x-pack-mount`, `x-pack` — rides on standard keywords a validator ignores; the tool is the one thing
+that reads them. Schemas are not written by hand: a Go default value is the source, and `go generate`
+produces `schema.json` ([docs/authoring.md](docs/authoring.md)).
+
+## Quick start
+
+Author a component in Go (`examples/postgres/postgres.go`):
+
+```go
+type Postgres struct {
+Ports     Ports               `json:"ports"`
+Scale     string              `json:"scale" pack:"const"`
+Platform  packschema.Platform `json:"platform" pack:"ref=horchestra://platform/v1#/$defs/component,default"`
+Claims    Claims              `json:"claims"`
+Database  string              `json:"database" jsonschema:"required"`
+Superuser Superuser           `json:"superuser"`
+Conf      Conf                `json:"conf" pack:"file=/etc/postgresql/postgresql.conf,format=properties"`
+}
+
+type Superuser struct {
+Name     string            `json:"name" pack:"default,env=POSTGRES_USER"`
+Password packschema.Secret `json:"password" jsonschema:"required" pack:"env=POSTGRES_PASSWORD"`
+}
+
+func Defaults() Postgres { return Postgres{Ports: Ports{PG: 5432}, Scale: "single", /* … */} }
+func (Postgres) PackRoot() packschema.Root { return packschema.Root{Readiness: &packschema.Readiness{TCP: "pg"}} }
+func (Postgres) PackCompute() map[string]string {
+return map[string]string{"/conf/shared_buffers": "string(quantity(platform.resources.limits.memory) / 1000 / 1048576 / 4) + 'MB'"}
+}
+```
+
+Generate, check, render:
+
+```sh
+go generate ./examples/...                       # writes examples/*/schema.json
+go run ./cmd/pack check examples/postgres        # author checks — the same ones the loader repeats
+cat > values.yaml <<'Y'
+values:
+  postgres:
+    database: app
+    superuser: {password: {secretRef: {name: pg, key: password}}}
+Y
+go run ./cmd/pack template --pack examples/postgres --values values.yaml --name dev --namespace apps -o out/
+```
+
+`out/applicationset.yaml` holds one application named `postgres` with the image from `pack.yaml`, `POSTGRES_USER`/
+`POSTGRES_PASSWORD` in `env` (the password as a `secretRef`), port 5432, a `pv` for `/var/lib/postgresql/data`
+and a secret mount for `/etc/postgresql`; `out/secrets/dev-postgres-….yaml`
+holds `postgresql.conf` with `shared_buffers=128MB` computed from the memory limit.
+
+A composition of several components — ZooKeeper, Kafka on it, two Postgres instances, a JDK library shared by the JVMs —
+is `examples/adh`; its golden output is `examples/adh/testdata/expected`.
+
+From a registry instead of a checkout: give `--pack` the reference —
+`pack template --pack cr://10.92.16.25:5000/ee/bundles/adh:4.3.0 …`. The tool reads the index, the schemas, the
+templates and the image configs itself and never an image layer — see
+[docs/artifacts.md](docs/artifacts.md#rendering-from-a-registry).
+
+## CLI
+
+| command                                                                                                                                                                                | what it does                                                                                                                                                                                                                                                                                                                                   |
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `pack check [--plain-http] <dir\|ref>`                                                                                                                                                 | Author checks on a component directory (`schema.json`, `templates/`, `image.json`), or on a composition — a directory or a pack in a registry (`cr://host/repo:tag`) — then every member is checked and the composition's own rules (role binding, ordering, membership) on top. Exit 1 with one line per problem.                             |
+| `pack template --pack <dir\|ref> --values <file> --name <installation> [--namespace <ns>] [-o <dir>] [--plain-http] [--secretProvider generate\|env\|file:<dir> --secret <pointer> …]` | Render. `--pack` is a composition or a lone component, as a directory or a registry reference. Without `-o`, a YAML stream on stdout. `--secret` names password leaves the tool provisions itself (an explicit allowlist); the provider says where their values come from — see [docs/values.md](docs/values.md#credentials-the-tool-creates). |
+| `pack schema vocabulary\|platform`                                                                                                                                                     | Print the two schemas the tool ships: the `x-pack-*` vocabulary (`horchestra://pack/v1`) and the platform half (`horchestra://platform/v1`).                                                                                                                                                                                                   |
+| `pack plan [--from <dir\|ref>] --to <dir\|ref> --values <file> [--savepoints auto\|none\|k1,k2] [--no-rollback k1,k2\|all] [--strict] [-o plan.yaml] [--plain-http]`                   | The saga: a first installation (no `--from`) or the upgrade between two versions — what changes, which hooks run, the rollback units and how far a failure rolls back ([docs/saga.md](docs/saga.md)). Prints the plan; `-o` also writes it as YAML.                                                                                            |
+
+## Repository layout
+
+```
+pack/
+  cmd/pack/            the CLI
+  sdk/                 the author's SDK — what a component is written against, and what the tool is built on:
+    sdk.go               Meta, Component, Workload, Generate, Verify, Main
+    packschema/          the vocabulary (Go types) and the generator Reflect()
+    schema/              the tool's own view of a schema: nodes, annotations, defaults, validating view
+    check/               author checks
+    compute/             the CEL environment of x-pack-compute
+    semver/              versions and constraints
+    platform/            the two schemas the tool ships: horchestra://platform/v1, horchestra://pack/v1
+    python/, java/       the same SDK in Python and Java — sdk/README.md
+  examples/            jdk, zookeeper, kafka, postgres, adh — go generate writes their schema.json
+  emit/                file emitters
+  bundle/              loading a composition or component from directories or a registry
+  registry/            the tool's own OCI distribution reader (manifests, schemas, templates, image configs — no layers)
+  render/              configure → mutate → validate → convert
+  plan/                the saga: a first installation, or the upgrade between two versions
+  docs/                this documentation
+```
+
+## Documentation
+
+- [docs/authoring.md](docs/authoring.md) — writing a component in Go: facts, settings, files, argv, env, secrets,
+  libraries, neighbours, formulas, readiness, hooks; every check and how to satisfy it
+- [docs/composition.md](docs/composition.md) — composing components into a system
+- [docs/values.md](docs/values.md) — the operator's document and how the effective document is built
+- [docs/output.md](docs/output.md) — the `ApplicationSet` and `Secret` contract, field by field
+- [docs/schema-reference.md](docs/schema-reference.md) — the `x-pack-*` vocabulary and the `pack:"…"` tag grammar
+- [docs/emitters.md](docs/emitters.md) — file formats
+- [docs/artifacts.md](docs/artifacts.md) — building and publishing with `oci-packer`
+- [docs/saga.md](docs/saga.md) — upgrades: hooks, savepoints, rollback
+
+## Building and testing
+
+Go 1.26 only (`GOTOOLCHAIN=go1.26.5`); one module, no `go.work`:
+
+```sh
+GOTOOLCHAIN=go1.26.5 go test ./...
+GOTOOLCHAIN=go1.26.5 go generate ./examples/...   # after editing an example
+UPDATE_GOLDEN=1 GOTOOLCHAIN=go1.26.5 go test ./render/   # after a deliberate output change
+```
+
+Tests fail when a committed `schema.json` drifts from its Go source, and when the rendered output of `examples/adh`
+drifts from the golden files — both are meant to be reviewed diffs, not surprises.

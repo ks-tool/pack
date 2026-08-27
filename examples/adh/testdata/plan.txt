@@ -1,0 +1,17 @@
+adh: 2.0.0 → 2.1.0 (upgrade)
+unchanged: 1 key(s)
+  1. kafka            apply 3.7.1
+  2. kafka            wait  ready (tcp:broker)
+     ── savepoint: kafka ──   unit 1–2
+  3. ranger-db        stop  exclusive hook follows
+  4. ranger-db        hook  pg-upgrade (15.6 → 16.3)                 compensate: /opt/pack/restore-15.sh   ~30m
+  5. ranger-db        apply 16.3
+  6. ranger-db        wait  ready (tcp:pg)
+  7. ranger-db        hook  analyze (15.6 → 16.3)                    idempotent
+  8. hive-db          stop  exclusive hook follows
+  9. hive-db          hook  pg-upgrade (15.6 → 16.3)                 compensate: /opt/pack/restore-15.sh   ~30m
+ 10. hive-db          apply 16.3
+ 11. hive-db          wait  ready (tcp:pg)
+ 12. hive-db          hook  analyze (15.6 → 16.3)                    idempotent
+     ── end ──   unit 3–12; rollback order: hive-db → ranger-db
+rollback policy: auto, to last savepoint; irreversible: none

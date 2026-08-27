@@ -1,0 +1,43 @@
+computed:
+  /hive-db/conf/shared_buffers: 1024MB
+  /kafka/conf/listeners: PLAINTEXT://:9092,INTERNAL://:9093
+  /kafka/conf/zookeeper.connect: prod-zookeeper-0.prod-zookeeper.data:2181,prod-zookeeper-1.prod-zookeeper.data:2181,prod-zookeeper-2.prod-zookeeper.data:2181/prod
+  /kafka/heapOpts: -Xmx24576m -Xms24576m -XX:+UseG1GC
+  /kafka/jdk/heapMB: 24576
+  /kafka/jdk/heapOpts: -Xmx24576m -Xms24576m -XX:+UseG1GC
+  /ranger-db/conf/shared_buffers: 128MB
+  /zookeeper/conf/server:
+    "1": prod-zookeeper-0.prod-zookeeper.data:2888:3888
+    "2": prod-zookeeper-1.prod-zookeeper.data:2888:3888
+    "3": prod-zookeeper-2.prod-zookeeper.data:2888:3888
+  /zookeeper/heapOpts: -Xmx768m -Xms768m -XX:+UseG1GC
+  /zookeeper/jdk/heapMB: 768
+  /zookeeper/jdk/heapOpts: -Xmx768m -Xms768m -XX:+UseG1GC
+installation: prod
+namespace: data
+order:
+- zookeeper
+- kafka
+- ranger-db
+- hive-db
+pack: adh
+peers:
+  hive-db: {}
+  kafka:
+    zk: zookeeper
+  ranger-db: {}
+  zookeeper: {}
+secrets:
+  prod-hive-db-0dd0a927:
+  - postgresql.conf
+  prod-kafka-1b36602b:
+  - kafka_jaas.conf
+  - server.properties
+  prod-ranger-db-65ca7864:
+  - postgresql.conf
+  prod-zookeeper-87a38116:
+  - zoo.cfg
+  prod-zookeeper-30361b21:
+  - myid.0
+  - myid.1
+  - myid.2

@@ -1,0 +1,9 @@
+.idea
+.DS_Store
+go.work*
+/out
+/bin
+__pycache__/
+*.pyc
+/sdk/java/target
+graphify-out/

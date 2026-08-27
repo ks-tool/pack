@@ -1,0 +1,9 @@
+type: application/vnd.horchestra.component.v1+json
+annotations: {io.horchestra.name: kafka, io.horchestra.version: "3.7.1"}
+items:
+  - from: cr://localhost:5001/images/kafka:3.7.1
+    platform: linux/arm64
+  - from: file://schema.json
+    type: application/vnd.horchestra.component.schema.v1+json
+  - from: dir://templates/
+    type: application/vnd.horchestra.template.v1

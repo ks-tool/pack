@@ -1,0 +1,19 @@
+values:
+  common: {realm: CORP.EXAMPLE}
+  zookeeper:
+    platform: {replicas: 3}
+  kafka:
+    platform:
+      replicas: 3
+      resources: {requests: {cpu: "8", memory: "32Gi"}, limits: {memory: "32Gi"}}
+      placement: {queue: data-prod}
+    claims: {data: {size: 4Ti, storageClass: nvme}}
+    conf: {min.insync.replicas: 2}
+    jaas: {password: {secretRef: {name: prod-kafka-sasl, key: password}}}
+    tls: {keystore: {secretRef: {name: prod-kafka-tls, key: keystore.jks}}}
+  ranger-db:
+    superuser: {password: {secretRef: {name: prod-ranger-db, key: password}}}
+  hive-db:
+    platform: {resources: {requests: {cpu: "2", memory: "4Gi"}, limits: {memory: "4Gi"}}}
+    superuser: {password: {secretRef: {name: prod-hive-db, key: password}}}
+rollout: {maxUnavailable: 1}

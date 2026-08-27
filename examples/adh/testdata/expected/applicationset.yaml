@@ -1,0 +1,219 @@
+apiVersion: horchestra.io/v1
+kind: ApplicationSet
+metadata:
+  labels:
+    horchestra.io/pack: adh
+    horchestra.io/pack-version: 2.1.0
+  name: prod
+  namespace: data
+spec:
+  applications:
+  - metadata:
+      labels:
+        horchestra.io/component: zookeeper
+    name: zookeeper
+    scale:
+      replicas: 3
+    spec:
+      env:
+      - name: JVMFLAGS
+        value: -Xmx768m -Xms768m -XX:+UseG1GC
+      image: localhost:5001/images/zookeeper:3.9.2
+      placement:
+        affinity:
+          workloadAntiAffinity:
+            requiredDuringScheduling:
+            - labelSelector:
+                horchestra.io/application-set: prod
+                horchestra.io/component: zookeeper
+              topologyKey: horchestra.io/hostname
+      ports:
+      - name: client
+        port: 2181
+      - name: election
+        port: 3888
+      - name: peer
+        port: 2888
+      readiness:
+        tcp:
+          port: 2181
+      resources:
+        limits:
+          memory: 1Gi
+        requests:
+          cpu: 500m
+          memory: 1Gi
+      volumes:
+      - mountPath: /var/lib/zookeeper
+        volume:
+          pv:
+            size: 10Gi
+      - merge: true
+        mountPath: /opt/java
+        volume:
+          image:
+            reference: localhost:5001/images/jdk:21.0.4
+      - merge: true
+        mountPath: /conf
+        volume:
+          secret:
+            items:
+            - key: zoo.cfg
+              path: zoo.cfg
+            name: prod-zookeeper-87a38116
+      - merge: true
+        mountPath: /var/lib/zookeeper
+        volume:
+          secret:
+            items:
+            - key: myid.${horchestra.index}
+              path: myid
+            name: prod-zookeeper-30361b21
+  - metadata:
+      labels:
+        horchestra.io/component: kafka
+    name: kafka
+    scale:
+      replicas: 3
+    spec:
+      args:
+      - --override
+      - min.insync.replicas=2
+      env:
+      - name: KAFKA_HEAP_OPTS
+        value: -Xmx24576m -Xms24576m -XX:+UseG1GC
+      image: localhost:5001/images/kafka:3.7.1
+      placement:
+        affinity:
+          workloadAntiAffinity:
+            requiredDuringScheduling:
+            - labelSelector:
+                horchestra.io/application-set: prod
+                horchestra.io/component: kafka
+              topologyKey: horchestra.io/hostname
+        queue: data-prod
+      ports:
+      - name: broker
+        port: 9092
+      - name: internal
+        port: 9093
+      readiness:
+        tcp:
+          port: 9092
+      resources:
+        limits:
+          memory: 32Gi
+        requests:
+          cpu: "8"
+          memory: 32Gi
+      volumes:
+      - mountPath: /var/lib/kafka/data
+        volume:
+          pv:
+            size: 4Ti
+            storageClass: nvme
+      - merge: true
+        mountPath: /opt/java
+        volume:
+          image:
+            reference: localhost:5001/images/jdk:21.0.4
+      - merge: true
+        mountPath: /opt/kafka/config
+        volume:
+          secret:
+            items:
+            - key: kafka_jaas.conf
+              mode: 256
+              path: kafka_jaas.conf
+            - key: server.properties
+              path: server.properties
+            name: prod-kafka-1b36602b
+            substitute:
+            - prod-kafka-sasl
+      - merge: true
+        mountPath: /opt/kafka/config
+        volume:
+          secret:
+            items:
+            - key: keystore.jks
+              mode: 256
+              path: keystore.jks
+            name: prod-kafka-tls
+  - metadata:
+      labels:
+        horchestra.io/component: ranger-db
+    name: ranger-db
+    spec:
+      env:
+      - name: POSTGRES_USER
+        value: postgres
+      - name: POSTGRES_PASSWORD
+        secretRef:
+          key: password
+          name: prod-ranger-db
+      image: localhost:5001/images/postgres:16.3
+      ports:
+      - name: pg
+        port: 5432
+      readiness:
+        tcp:
+          port: 5432
+      resources:
+        limits:
+          memory: 512Mi
+        requests:
+          cpu: 500m
+          memory: 512Mi
+      volumes:
+      - mountPath: /var/lib/postgresql/data
+        volume:
+          pv:
+            size: 10Gi
+      - merge: true
+        mountPath: /etc/postgresql
+        volume:
+          secret:
+            items:
+            - key: postgresql.conf
+              path: postgresql.conf
+            name: prod-ranger-db-65ca7864
+  - metadata:
+      labels:
+        horchestra.io/component: hive-db
+    name: hive-db
+    spec:
+      env:
+      - name: POSTGRES_USER
+        value: postgres
+      - name: POSTGRES_PASSWORD
+        secretRef:
+          key: password
+          name: prod-hive-db
+      image: localhost:5001/images/postgres:16.3
+      ports:
+      - name: pg
+        port: 5432
+      readiness:
+        tcp:
+          port: 5432
+      resources:
+        limits:
+          memory: 4Gi
+        requests:
+          cpu: "2"
+          memory: 4Gi
+      volumes:
+      - mountPath: /var/lib/postgresql/data
+        volume:
+          pv:
+            size: 10Gi
+      - merge: true
+        mountPath: /etc/postgresql
+        volume:
+          secret:
+            items:
+            - key: postgresql.conf
+              path: postgresql.conf
+            name: prod-hive-db-0dd0a927
+  rollout:
+    maxUnavailable: 1

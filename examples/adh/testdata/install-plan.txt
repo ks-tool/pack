@@ -1,0 +1,15 @@
+adh: install 2.1.0
+  1. zookeeper        apply 3.9.2
+  2. zookeeper        wait  ready (tcp:client)
+     ── savepoint: zookeeper ──   unit 1–2
+  3. kafka            apply 3.7.1
+  4. kafka            wait  ready (tcp:broker)
+     ── savepoint: kafka ──   unit 3–4
+  5. ranger-db        apply 16.3
+  6. ranger-db        wait  ready (tcp:pg)
+  7. ranger-db        hook  init-extensions (16.3)                   idempotent   ~5m
+  8. hive-db          apply 16.3
+  9. hive-db          wait  ready (tcp:pg)
+ 10. hive-db          hook  init-extensions (16.3)                   idempotent   ~5m
+     ── end ──   unit 5–10; rollback order: hive-db → ranger-db
+rollback policy: auto, to last savepoint; irreversible: none

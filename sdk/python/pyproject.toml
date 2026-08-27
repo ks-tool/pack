@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "packsdk"
+version = "0.1.0"
+description = "Describe a horchestra pack component in Python; generate its schema.json, pack.yaml and templates"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["packsdk*"]
