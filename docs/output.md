@@ -149,6 +149,42 @@ what it is" without opening the artifact.
 
 ## What horchestra does not know yet
 
+The output is the contract of phase 2. Most of it landed in horchestra on
+2026-08-27 (`merge` on a secret mount, `substitute`, `${horchestra.index}`
+and its siblings in an item key, `type: horchestra.io/config`, children
+rolled in declaration order, init steps gated by level). What is still only
+written here:
+
+| field | meaning |
+|---|---|
+| `spec.readiness` | `{tcp: {port}}`, `{http: {port, path}}`, `{exec: […]}` — what the set counts a child ready by; today a child is "running" once its node reports the process up |
+| `volume.pv.storageClass` | the class the claim asks for |
+
+Until then the output is reviewable, testable, diffable — and applied by
+the tool's phase-2 `apply` once the fields land.
+
+## The report
+
+```yaml
+installation: prod
+namespace: data
+pack: adh
+order: [zookeeper, kafka, ranger-db, hive-db]
+peers:
+  kafka: {zk: zookeeper}
+computed:
+  /kafka/conf/zookeeper.connect: prod-zookeeper-0.prod-zookeeper.data:2181,…
+  /kafka/jdk/heapMB: 24576
+  /zookeeper/jdk/heapMB: 768
+secrets:
+  prod-kafka-5b06f451: [kafka_jaas.conf, server.properties]
+```
+
+`computed` is every leaf a formula wrote — the answer to "why is this value
+what it is" without opening the artifact.
+
+## What horchestra does not know yet
+
 The output is the contract of phase 2. Fields horchestra's API does not have
 today, and what they mean:
 
