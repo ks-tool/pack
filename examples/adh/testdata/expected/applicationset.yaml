@@ -60,7 +60,7 @@ spec:
             items:
             - key: zoo.cfg
               path: zoo.cfg
-            name: prod-zookeeper-87a38116
+            name: prod-zookeeper-conf
       - merge: true
         mountPath: /var/lib/zookeeper
         volume:
@@ -68,7 +68,7 @@ spec:
             items:
             - key: myid.${horchestra.index}
               path: myid
-            name: prod-zookeeper-30361b21
+            name: prod-zookeeper-var-lib-zookeeper
   - metadata:
       labels:
         horchestra.io/component: kafka
@@ -127,7 +127,7 @@ spec:
               path: kafka_jaas.conf
             - key: server.properties
               path: server.properties
-            name: prod-kafka-1b36602b
+            name: prod-kafka-opt-kafka-config
             substitute:
             - prod-kafka-sasl
       - merge: true
@@ -176,7 +176,7 @@ spec:
             items:
             - key: postgresql.conf
               path: postgresql.conf
-            name: prod-ranger-db-65ca7864
+            name: prod-ranger-db-etc-postgresql
   - metadata:
       labels:
         horchestra.io/component: hive-db
@@ -214,6 +214,6 @@ spec:
             items:
             - key: postgresql.conf
               path: postgresql.conf
-            name: prod-hive-db-0dd0a927
+            name: prod-hive-db-etc-postgresql
   rollout:
     maxUnavailable: 1

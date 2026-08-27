@@ -55,7 +55,7 @@ spec:
         merge: true
         volume:
           secret:
-            name: prod-kafka-5b06f451
+            name: prod-kafka-opt-kafka-config
             items:
             - {key: kafka_jaas.conf, path: kafka_jaas.conf, mode: 256}     # 0400, decimal as in Kubernetes
             - {key: server.properties, path: server.properties}
@@ -80,17 +80,18 @@ spec:
 
 Every directory a component (or one of its libraries) writes files into is
 **one Secret**, mounted over that directory with `merge: true` — the
-image's own files in it stay visible, the pack's win a name collision.
+image's own files in it stay visible, the pack's win a name collision. Its
+name is stable — `<installation>-<key>-<directory>` — so rendering again
+updates the same object in place: the output is idempotent.
 
 ```yaml
 apiVersion: horchestra.io/v1
 kind: Secret
 metadata:
-  name: prod-kafka-5b06f451                    # <installation>-<key>-<8 hex of sha256 of the contents>
+  name: prod-kafka-opt-kafka-config            # <installation>-<key>-<directory as a DNS label>
   namespace: data
   labels: {horchestra.io/installation: prod, horchestra.io/component: kafka}
 type: horchestra.io/config                     # a config, not a credential — audit and UI tell them apart
-immutable: true
 stringData:
   server.properties: |
     broker.id.generation.enable=true
@@ -104,11 +105,12 @@ stringData:
     };
 ```
 
-- **Named by content.** A changed file is a new Secret with a new name,
-  referenced from the child's spec — so a config change is a spec change,
-  and rolls out like an image change, with the set's `maxUnavailable` and
-  in dependency order. Rendering the same inputs again produces the same
-  name and changes nothing.
+- **Updated in place.** A changed file is the same Secret with a new
+  `resourceVersion`. The set stamps that version on every child mounting
+  the Secret (`horchestra.io/config-revision`) and the node restarts on
+  it — so a config change rolls out like an image change, with the set's
+  `maxUnavailable` and in dependency order, and rendering the same inputs
+  again changes nothing.
 - **Credentials never appear.** A password leaf under a file becomes
   `${secret:<name>/<key>}`; the mount lists the name under `substitute`; the
   node substitutes at materialisation. The tool has no access to secret
@@ -141,7 +143,7 @@ computed:
   /kafka/jdk/heapMB: 24576
   /zookeeper/jdk/heapMB: 768
 secrets:
-  prod-kafka-5b06f451: [kafka_jaas.conf, server.properties]
+  prod-kafka-opt-kafka-config: [kafka_jaas.conf, server.properties]
 ```
 
 `computed` is every leaf a formula wrote — the answer to "why is this value
@@ -177,7 +179,7 @@ computed:
   /kafka/jdk/heapMB: 24576
   /zookeeper/jdk/heapMB: 768
 secrets:
-  prod-kafka-5b06f451: [kafka_jaas.conf, server.properties]
+  prod-kafka-opt-kafka-config: [kafka_jaas.conf, server.properties]
 ```
 
 `computed` is every leaf a formula wrote — the answer to "why is this value

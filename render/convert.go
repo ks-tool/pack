@@ -1,9 +1,7 @@
 package render
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -335,7 +333,6 @@ func (r *render) configSecrets(key string, comp *bundle.Component, km map[string
 				return nil, nil, fmt.Errorf("%s/%s is written twice (a component and a library, or two files at one path)", dir, group[i].base)
 			}
 		}
-		h := sha256.New()
 		data := map[string]string{}
 		binary := map[string]string{}
 		var items []KeyToPath
@@ -344,10 +341,6 @@ func (r *render) configSecrets(key string, comp *bundle.Component, km map[string
 		for _, rd := range group {
 			for _, k := range sortedKeysB(rd.bytes) {
 				b := rd.bytes[k]
-				_, _ = fmt.Fprintf(h, "%s\x00%s\x00", k, b)
-				if rd.mode != nil {
-					_, _ = fmt.Fprintf(h, "%o", *rd.mode)
-				}
 				if utf8.Valid(b) {
 					data[k] = string(b)
 				} else {
@@ -362,18 +355,41 @@ func (r *render) configSecrets(key string, comp *bundle.Component, km map[string
 			items = append(items, KeyToPath{Key: itemKey, Path: rd.base, Mode: rd.mode})
 			subst = union(subst, rd.secrets)
 		}
-		name := fmt.Sprintf("%s-%s-%s", r.ctx.Installation, key, hex.EncodeToString(h.Sum(nil))[:8])
+		// A stable name — the installation, the key and the directory — so rendering again
+		// updates the same object in place and the output is idempotent. What turns the update
+		// into a restart is horchestra's: the set stamps the Secret's resourceVersion on the
+		// children that mount it (horchestra.io/config-revision), and the node restarts on it.
+		name := configSecretName(r.ctx.Installation, key, dir)
 		secrets = append(secrets, Secret{
 			APIVersion: "horchestra.io/v1", Kind: "Secret",
 			Metadata: ObjectMeta{Name: name, Namespace: r.ctx.Namespace,
 				Labels: map[string]string{LabelInstallation: r.ctx.Installation, LabelComponent: key}},
-			Type: SecretTypeConfig, Immutable: true, StringData: nilIfEmpty(data), Data: nilIfEmpty(binary),
+			Type: SecretTypeConfig, StringData: nilIfEmpty(data), Data: nilIfEmpty(binary),
 		})
 		sort.Strings(subst)
 		mounts = append(mounts, VolumeMount{MountPath: dir, Merge: true, Volume: VolumeSource{Secret: &SecretVolume{Name: name, Items: items, Substitute: subst}}})
 		r.report.Secrets[name] = names
 	}
 	return secrets, append(mounts, secretMounts...), nil
+}
+
+// configSecretName is `<installation>-<key>-<directory>`, the directory as a DNS label:
+// `/opt/kafka/config` → `prod-kafka-opt-kafka-config`. Readable, and the same on every run.
+func configSecretName(installation, key, dir string) string {
+	slug := strings.Trim(strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		default:
+			return '-'
+		}
+	}, dir), "-")
+	for strings.Contains(slug, "--") {
+		slug = strings.ReplaceAll(slug, "--", "-")
+	}
+	return installation + "-" + key + "-" + slug
 }
 
 // secretFiles turns every x-pack-file of format secret into a mount of the

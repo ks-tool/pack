@@ -28,16 +28,16 @@ peers:
   ranger-db: {}
   zookeeper: {}
 secrets:
-  prod-hive-db-0dd0a927:
+  prod-hive-db-etc-postgresql:
   - postgresql.conf
-  prod-kafka-1b36602b:
+  prod-kafka-opt-kafka-config:
   - kafka_jaas.conf
   - server.properties
-  prod-ranger-db-65ca7864:
+  prod-ranger-db-etc-postgresql:
   - postgresql.conf
-  prod-zookeeper-87a38116:
+  prod-zookeeper-conf:
   - zoo.cfg
-  prod-zookeeper-30361b21:
+  prod-zookeeper-var-lib-zookeeper:
   - myid.0
   - myid.1
   - myid.2

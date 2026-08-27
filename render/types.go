@@ -157,7 +157,7 @@ type Secret struct {
 	Kind       string            `json:"kind"`
 	Metadata   ObjectMeta        `json:"metadata"`
 	Type       string            `json:"type"`
-	Immutable  bool              `json:"immutable"`
+	Immutable bool `json:"immutable,omitempty"`
 	StringData map[string]string `json:"stringData,omitempty"`
 	Data       map[string]string `json:"data,omitempty"`
 }
