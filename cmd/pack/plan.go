@@ -26,6 +26,8 @@ func runPlan(args []string) error {
 	noRollback := fs.String("no-rollback", "", "keys where an automatic rollback stops (\"all\" rolls nothing back)")
 	strict := fs.Bool("strict", false, "refuse a plan with an irreversible step")
 	outFile := fs.String("o", "", "write the plan as YAML here, besides printing it")
+	var skip multiFlag
+	fs.Var(&skip, "skip", "exclude a key from the install, even if the values document or the whole-bundle fallback would otherwise include it; refused if another installed key still requires it; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -42,6 +44,7 @@ func runPlan(args []string) error {
 			return fmt.Errorf("%s: %w", *valuesFile, err)
 		}
 	}
+	v.Skip = append(v.Skip, skip...)
 	ctx := render.Context{Installation: *name, Namespace: *namespace}
 	toB, err := openPack(*to, *plainHTTP)
 	if err != nil {

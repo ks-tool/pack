@@ -27,6 +27,13 @@ type Context struct {
 type Values struct {
 	Values  map[string]any      `json:"values"`
 	Rollout *packschema.Rollout `json:"rollout,omitempty"`
+	// Skip names keys to exclude from whatever the selection would otherwise
+	// install — the explicit values an operator named, or the whole-bundle
+	// fallback. It is a final override, checked AFTER the selection and its
+	// closure settle: a key still required by another key that IS installed
+	// cannot be skipped, and configure refuses rather than installing a
+	// component with a required peer quietly missing.
+	Skip []string `json:"skip,omitempty"`
 }
 
 // formula is one x-pack-compute, located in the instance document.
@@ -47,8 +54,13 @@ type render struct {
 	userSet  map[string]bool // pointers the operator wrote
 	formulas []formula
 	peers    map[string]map[string]string // key → role → key
-	order    []string
-	report   Report
+	// keys is the SELECTION this render actually installs — b.Keys narrowed to
+	// what the operator named in values plus the required peers that follow
+	// from it, in the composition's declared order. Everything below configure
+	// works off this, never off b.Keys, once it is set.
+	keys   []string
+	order  []string
+	report Report
 }
 
 // Render runs the link: configure → mutate → validate → convert.
@@ -74,7 +86,7 @@ func Render(b *bundle.Bundle, v Values, ctx Context) (*Output, error) {
 	return r.convert(v)
 }
 
-// configure: defaults ⊕ user values, peers bound, order derived.
+// configure: defaults ⊕ user values, selection and peers bound, order derived.
 func (r *render) configure(v Values) error {
 	defaults, _, err := r.b.Composition.Defaults()
 	if err != nil {
@@ -89,28 +101,51 @@ func (r *render) configure(v Values) error {
 		schema.Overlay(doc, schema.DeepCopy(v.Values).(map[string]any))
 	}
 	r.doc = doc
-	for _, key := range r.b.Keys {
-		if _, ok := doc[key]; !ok {
-			doc[key] = map[string]any{}
+
+	// Selection: a key installs when the values document NAMES it, even as {}
+	// — presence is the ask, not the content. Naming none of the composition's
+	// keys at all is "no choice made", not "choose nothing": it keeps every
+	// key, the way a values document always has, so a lone-component pack
+	// installed with values: {} still installs its one component and an
+	// operator who has never thought about subsetting sees no change.
+	selected := map[string]bool{}
+	if v.Values != nil {
+		for k := range v.Values {
+			if _, ok := r.b.KeyComponent[k]; ok {
+				selected[k] = true
+			}
+		}
+	}
+	if len(selected) == 0 {
+		for _, key := range r.b.Keys {
+			selected[key] = true
 		}
 	}
 
-	// peers: auto by uniqueness of type, explicit when ambiguous
+	// byType is looked up against the WHOLE bundle, never the selection: a
+	// required peer has to be IDENTIFIED before it can be ADDED to the
+	// selection, which is what the closure below does.
 	byType := map[string][]string{}
 	for _, key := range r.b.Keys {
 		byType[r.b.KeyComponent[key]] = append(byType[r.b.KeyComponent[key]], key)
 	}
-	for _, key := range r.b.Keys {
+
+	// bindOne resolves one key's peers against byType — auto by uniqueness of
+	// type, explicit in x-pack.peers of the key when ambiguous — unchanged
+	// from before the closure existed: an unresolved REQUIRED role is still a
+	// refusal here, because that is the pack being incomplete, not a question
+	// of what this render selected.
+	bindOne := func(key string) (map[string]string, error) {
 		comp := r.b.Components[r.b.KeyComponent[key]]
 		ann, err := r.b.Composition.Root.Properties[key].KeyAnnotation()
 		if err != nil {
-			return fmt.Errorf("%s: %w", key, err)
+			return nil, fmt.Errorf("%s: %w", key, err)
 		}
 		bound := map[string]string{}
 		for role, peer := range comp.Root.Peers {
 			if explicit, ok := ann.Peers[role]; ok {
 				if r.b.KeyComponent[explicit] != peer.Schema {
-					return fmt.Errorf("%s: role %q bound to %q, which is %s, not %s", key, role, explicit, r.b.KeyComponent[explicit], peer.Schema)
+					return nil, fmt.Errorf("%s: role %q bound to %q, which is %s, not %s", key, role, explicit, r.b.KeyComponent[explicit], peer.Schema)
 				}
 				bound[role] = explicit
 				continue
@@ -120,23 +155,145 @@ func (r *render) configure(v Values) error {
 			case len(candidates) == 1:
 				bound[role] = candidates[0]
 			case len(candidates) == 0 && peer.Required:
-				return fmt.Errorf("%s: role %q needs a %s and the composition has none", key, role, peer.Schema)
+				return nil, fmt.Errorf("%s: role %q needs a %s and the composition has none", key, role, peer.Schema)
 			case len(candidates) > 1:
-				return fmt.Errorf("%s: role %q is ambiguous — %s are all %s; bind it in x-pack.peers of the key", key, role, strings.Join(candidates, ", "), peer.Schema)
+				return nil, fmt.Errorf("%s: role %q is ambiguous — %s are all %s; bind it in x-pack.peers of the key", key, role, strings.Join(candidates, ", "), peer.Schema)
 			}
 		}
 		for role := range ann.Peers {
 			if _, known := comp.Root.Peers[role]; !known {
-				return fmt.Errorf("%s: x-pack.peers names role %q, which %s does not declare", key, role, comp.Name)
+				return nil, fmt.Errorf("%s: x-pack.peers names role %q, which %s does not declare", key, role, comp.Name)
 			}
 		}
-		r.peers[key] = bound
+		return bound, nil
+	}
+
+	// Closure: a REQUIRED peer's resolved key joins the selection, and joining
+	// may itself have required peers, so this runs to a fixed point. A
+	// required: false peer is bound below, once the selection is settled, but
+	// never grows it here — "works without it" means without, not "pulls it
+	// in anyway because one happens to exist".
+	bound := map[string]map[string]string{}
+	for {
+		grew := false
+		for key := range selected {
+			if _, done := bound[key]; done {
+				continue
+			}
+			b, err := bindOne(key)
+			if err != nil {
+				return err
+			}
+			bound[key] = b
+			comp := r.b.Components[r.b.KeyComponent[key]]
+			for role, peer := range comp.Root.Peers {
+				if !peer.Required {
+					continue
+				}
+				if target, ok := bound[key][role]; ok && !selected[target] {
+					selected[target] = true
+					grew = true
+				}
+			}
+			// A one-shot init step (restartPolicy: Never) named in `after` is a
+			// load-bearing prerequisite, not an ordering nicety: postgres without
+			// pg-init just fails. It has no peer role to be required through — a
+			// step that runs once and is gone is nothing a formula could address
+			// — so `after` is the only way a component can name one, and here it
+			// is mandatory, not "orders it, if it happens to already be selected".
+			ann, err := r.b.Composition.Root.Properties[key].KeyAnnotation()
+			if err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+			for _, a := range ann.After {
+				if _, ok := r.b.KeyComponent[a]; !ok {
+					return fmt.Errorf("%s: after names %q, not a key", key, a)
+				}
+				if selected[a] {
+					continue
+				}
+				if r.b.Components[r.b.KeyComponent[a]].Root.RestartPolicy == "Never" {
+					selected[a] = true
+					grew = true
+				}
+			}
+		}
+		if !grew {
+			break
+		}
+	}
+
+	// Skip: an explicit override, checked against the closure it just
+	// settled — not against the pre-closure selection, so skipping BOTH a key
+	// and its only dependent in the same call is not a contradiction.
+	for _, key := range v.Skip {
+		if _, ok := r.b.KeyComponent[key]; !ok {
+			return fmt.Errorf("--skip names %q, not a key", key)
+		}
+		delete(selected, key)
+	}
+	if len(v.Skip) > 0 {
+		var broken []string
+		for key := range selected {
+			comp := r.b.Components[r.b.KeyComponent[key]]
+			for role, peer := range comp.Root.Peers {
+				if !peer.Required {
+					continue
+				}
+				target, ok := bound[key][role]
+				if ok && !selected[target] {
+					broken = append(broken, fmt.Sprintf("%s requires %s (role %q)", key, target, role))
+				}
+			}
+		}
+		if len(broken) > 0 {
+			sort.Strings(broken)
+			return fmt.Errorf("cannot skip: %s", strings.Join(broken, "; "))
+		}
+	}
+	r.keys = make([]string, 0, len(selected))
+	for _, key := range r.b.Keys { // the composition's own declared order
+		if selected[key] {
+			r.keys = append(r.keys, key)
+		}
+	}
+
+	// A required: false role wires up only when its candidate is ALSO
+	// selected: an optional peer present by the operator's own choice, not one
+	// pulled in for the occasion because bindOne could still name it.
+	r.peers = map[string]map[string]string{}
+	for _, key := range r.keys {
+		out := map[string]string{}
+		for role, target := range bound[key] {
+			if selected[target] {
+				out[role] = target
+			}
+		}
+		r.peers[key] = out
 	}
 	r.report.Peers = r.peers
 
-	// order: after every bound peer, plus explicit after
+	// A key that was not selected gets no doc entry: nothing to default,
+	// mutate, validate or render for a component this release does not
+	// install. The composition schema has no top-level `required`, precisely
+	// so that removing one here is not a validation failure later.
+	for key := range doc {
+		if _, isKey := r.b.KeyComponent[key]; isKey && !selected[key] {
+			delete(doc, key)
+		}
+	}
+	for _, key := range r.keys {
+		if _, ok := doc[key]; !ok {
+			doc[key] = map[string]any{}
+		}
+	}
+
+	// order: after every bound peer, plus explicit after — both restricted to
+	// the selection. `after` naming a key this release does not install is
+	// dropped rather than refused: it is an ordering hint about a key that
+	// simply is not here, not a broken reference the composition got wrong.
 	edges := map[string][]string{}
-	for _, key := range r.b.Keys {
+	for _, key := range r.keys {
 		ann, _ := r.b.Composition.Root.Properties[key].KeyAnnotation()
 		for _, peer := range r.peers[key] {
 			edges[key] = append(edges[key], peer)
@@ -145,10 +302,12 @@ func (r *render) configure(v Values) error {
 			if _, ok := r.b.KeyComponent[a]; !ok {
 				return fmt.Errorf("%s: after names %q, not a key", key, a)
 			}
-			edges[key] = append(edges[key], a)
+			if selected[a] {
+				edges[key] = append(edges[key], a)
+			}
 		}
 	}
-	order, err := topo(r.b.Keys, edges)
+	order, err := topo(r.keys, edges)
 	if err != nil {
 		return err
 	}
@@ -189,15 +348,20 @@ func topo(keys []string, deps map[string][]string) ([]string, error) {
 	return out, nil
 }
 
-// collect gathers every formula of the composition with its values root.
+// collect gathers every formula of a SELECTED key with its values root — a
+// key this release does not install has no doc entry (configure already
+// deleted it), so evaluating its formulas would compute against nothing and
+// set() into a path that no longer exists.
 func (r *render) collect() error {
+	selected := map[string]bool{}
 	roots := map[string]bool{}
-	for _, key := range r.b.Keys {
+	for _, key := range r.keys {
+		selected[key] = true
 		roots["/"+key] = true
 	}
 	return r.b.Composition.Visit(func(ptr string, s *schema.Schema, n *schema.Node) error {
 		segs := schema.Split(ptr)
-		if len(segs) == 0 || segs[0] == "common" {
+		if len(segs) == 0 || segs[0] == "common" || !selected[segs[0]] {
 			return nil
 		}
 		if n.IsForeign() && strings.HasPrefix(n.Ref, packschema.PackScheme) && len(segs) >= 2 {
@@ -448,7 +612,7 @@ func (r *render) validate() error {
 	for _, v := range compiled.Validate(r.doc) {
 		problems = append(problems, v.String())
 	}
-	for _, key := range r.b.Keys {
+	for _, key := range r.keys {
 		ann, _ := r.b.Composition.Root.Properties[key].KeyAnnotation()
 		keyDoc, _ := get(r.doc, "/"+key)
 		km, _ := keyDoc.(map[string]any)

@@ -30,6 +30,8 @@ func runTemplate(args []string) error {
 
 	var secrets multiFlag
 	fs.Var(&secrets, "secret", "a password leaf to provision from the provider, as a values pointer (/kafka/jaas/password); repeatable")
+	var skip multiFlag
+	fs.Var(&skip, "skip", "exclude a key from the install, even if the values document or the whole-bundle fallback would otherwise include it; refused if another installed key still requires it; repeatable")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -54,6 +56,7 @@ func runTemplate(args []string) error {
 			return fmt.Errorf("%s: %w", *valuesFile, err)
 		}
 	}
+	v.Skip = append(v.Skip, skip...)
 
 	ctx := render.Context{Installation: *name, Namespace: *namespace}
 	credentials, err := render.Provision(b, &v, ctx, render.Provider(*provider), secrets)
