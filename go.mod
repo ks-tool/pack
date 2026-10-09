@@ -6,10 +6,13 @@ require (
 	cel.dev/cel-go v0.32.0
 	github.com/arenadata/oci-packer/types v0.0.0-20260826200739-e0ae066b05d0
 	github.com/invopop/jsonschema v0.14.0
+	github.com/ks-tool/app-config/go v0.0.0-20260921104620-65a08e500d40
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/pb33f/ordered-map/v2 v2.3.2
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 	golang.org/x/text v0.43.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
@@ -23,10 +26,9 @@ require (
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/caarlos0/env/v11 v11.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/ks-tool/app-config/go v0.0.0-20260921104620-65a08e500d40 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20261007192929-f45ad48fbe92 // indirect

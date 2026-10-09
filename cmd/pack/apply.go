@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 
 	"github.com/ks-tool/pack/bundle"
@@ -26,8 +26,12 @@ import (
 // says what is installed, pack plans the saga and drives it step by step. A
 // saga the record shows unfinished is continued from its last savepoint —
 // the same command again — unless --from-start runs it from its first step.
-func runApply(args []string) error {
-	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
+func newApplyCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "apply", Short: "install or upgrade: the target says what is installed, pack drives the saga step by step", Args: cobra.NoArgs,
+		Long: `The target says what is installed, pack plans the saga and drives it step by step
+through the provider, rolling a failed unit back. An unfinished saga continues from
+its last savepoint (--from-start: from its first step). The target must perform steps.`}
+	fs := cmd.Flags()
 	packRef := fs.String("pack", "", "the version to install: a composition or component directory, or a registry reference")
 	plainHTTP := fs.Bool("plain-http", false, "the registry speaks plain HTTP")
 	valuesFile := fs.String("values", "", "values document (YAML)")
@@ -42,111 +46,111 @@ func runApply(args []string) error {
 	var secrets, skip multiFlag
 	fs.Var(&secrets, "secret", "a password leaf to provision from the provider, as a values pointer; repeatable")
 	fs.Var(&skip, "skip", "exclude a key from the install; repeatable")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if len(*packRef) == 0 || len(*name) == 0 {
-		return errors.New("apply: --pack and --name are required")
-	}
-
-	inst, closeTarget, err := tf.configure(*name)
-	if err != nil {
-		return err
-	}
-	defer closeTarget()
-	x, ok := inst.(target.Executor)
-	if !ok {
-		return fmt.Errorf("target %s does not perform steps (no %q capability): pack template renders for it", tf.target(), target.CapExecute)
-	}
-	ctx := render.Context{Installation: *name, Target: inst}
-
-	// what is installed
-	rec, err := saga.Read(x)
-	if err != nil {
-		return err
-	}
-	var fromB *bundle.Bundle
-	var fromRel *render.Release
-	if rec != nil && len(rec.Pack) > 0 {
-		if fromB, err = openPack(rec.Pack, *plainHTTP); err != nil {
-			return fmt.Errorf("the installed version %s: %w", rec.Pack, err)
+	cmd.RunE = func(*cobra.Command, []string) error {
+		if len(*packRef) == 0 || len(*name) == 0 {
+			return errors.New("apply: --pack and --name are required")
 		}
-		if fromRel, err = render.Render(fromB, rec.Values, ctx); err != nil {
-			return fmt.Errorf("the installed version %s: %w", rec.Pack, err)
-		}
-	}
 
-	// what is wanted
-	var v render.Values
-	if len(*valuesFile) > 0 {
-		raw, err := os.ReadFile(*valuesFile)
+		inst, closeTarget, err := tf.configure(*name)
 		if err != nil {
 			return err
 		}
-		if err := yaml.Unmarshal(raw, &v); err != nil {
-			return fmt.Errorf("%s: %w", *valuesFile, err)
+		defer closeTarget()
+		x, ok := inst.(target.Executor)
+		if !ok {
+			return fmt.Errorf("target %s does not perform steps (no %q capability): pack template renders for it", tf.target(), target.CapExecute)
 		}
-	}
-	v.Skip = append(v.Skip, skip...)
-	given, err := copyValues(v)
-	if err != nil {
-		return err
-	}
-	policy := plan.Policy{Savepoints: *savepoints, Strict: *strict}
-	switch *noRollback {
-	case "":
-	case "all":
-		policy.NoRollbackAll = true
-	default:
-		policy.NoRollback = strings.Split(*noRollback, ",")
-	}
-	resume := rec.Unfinished() && !*fromStart
-	if resume {
-		sg := rec.Saga
-		if sg.Pack != recordRef(*packRef) || !sameJSON(sg.Given, given) || !sameJSON(sg.Policy, policy) {
-			return fmt.Errorf("a saga towards %s did not finish (%s at step %d: %s): the same command continues it from its last savepoint; this one asks for something else — --from-start to start over",
-				sg.Pack, rec.State, sg.Failed, sg.Error)
-		}
-	}
-	toB, err := openPack(*packRef, *plainHTTP)
-	if err != nil {
-		return err
-	}
-	credentials, err := render.Provision(toB, &v, *name, render.Provider(*provider), secrets)
-	if err != nil {
-		return err
-	}
-	toRel, err := render.Render(toB, v, ctx)
-	if err != nil {
-		return err
-	}
+		ctx := render.Context{Installation: *name, Target: inst}
 
-	p, err := plan.Build(plan.Input{From: fromB, To: toB, FromOut: fromRel, ToOut: toRel, Policy: policy})
-	if err != nil {
-		return err
-	}
-	fmt.Print(p.Text())
-	if *dryRun {
+		// what is installed
+		rec, err := saga.Read(x)
+		if err != nil {
+			return err
+		}
+		var fromB *bundle.Bundle
+		var fromRel *render.Release
+		if rec != nil && len(rec.Pack) > 0 {
+			if fromB, err = openPack(rec.Pack, *plainHTTP); err != nil {
+				return fmt.Errorf("the installed version %s: %w", rec.Pack, err)
+			}
+			if fromRel, err = render.Render(fromB, rec.Values, ctx); err != nil {
+				return fmt.Errorf("the installed version %s: %w", rec.Pack, err)
+			}
+		}
+
+		// what is wanted
+		var v render.Values
+		if len(*valuesFile) > 0 {
+			raw, err := os.ReadFile(*valuesFile)
+			if err != nil {
+				return err
+			}
+			if err := yaml.Unmarshal(raw, &v); err != nil {
+				return fmt.Errorf("%s: %w", *valuesFile, err)
+			}
+		}
+		v.Skip = append(v.Skip, skip...)
+		given, err := copyValues(v)
+		if err != nil {
+			return err
+		}
+		policy := plan.Policy{Savepoints: *savepoints, Strict: *strict}
+		switch *noRollback {
+		case "":
+		case "all":
+			policy.NoRollbackAll = true
+		default:
+			policy.NoRollback = strings.Split(*noRollback, ",")
+		}
+		resume := rec.Unfinished() && !*fromStart
+		if resume {
+			sg := rec.Saga
+			if sg.Pack != recordRef(*packRef) || !sameJSON(sg.Given, given) || !sameJSON(sg.Policy, policy) {
+				return fmt.Errorf("a saga towards %s did not finish (%s at step %d: %s): the same command continues it from its last savepoint; this one asks for something else — --from-start to start over",
+					sg.Pack, rec.State, sg.Failed, sg.Error)
+			}
+		}
+		toB, err := openPack(*packRef, *plainHTTP)
+		if err != nil {
+			return err
+		}
+		credentials, err := render.Provision(toB, &v, *name, render.Provider(*provider), secrets)
+		if err != nil {
+			return err
+		}
+		toRel, err := render.Render(toB, v, ctx)
+		if err != nil {
+			return err
+		}
+
+		p, err := plan.Build(plan.Input{From: fromB, To: toB, FromOut: fromRel, ToOut: toRel, Policy: policy})
+		if err != nil {
+			return err
+		}
+		fmt.Print(p.Text())
+		if *dryRun {
+			return nil
+		}
+
+		if rec == nil {
+			rec = &saga.Record{Name: *name}
+		}
+		if resume {
+			fmt.Printf("continuing the saga towards %s from its last savepoint\n", rec.Saga.Pack)
+		} else {
+			rec.Saga = &saga.Progress{Pack: recordRef(*packRef), Version: toB.Version, Values: v, Given: given, Policy: policy, Started: time.Now().UTC()}
+		}
+		sctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		run := &saga.Run{Plan: p, From: fromRel, To: toRel, Credentials: credentials, Exec: x, Record: rec,
+			Events: func(s string) { fmt.Println(s) }}
+		if err := run.Execute(sctx); err != nil {
+			return err
+		}
+		fmt.Println(strings.Join(strings.Fields(fmt.Sprintf("installed %s %s as %s on %s", toB.Name, toB.Version, *name, tf.target())), " "))
 		return nil
 	}
-
-	if rec == nil {
-		rec = &saga.Record{Name: *name}
-	}
-	if resume {
-		fmt.Printf("continuing the saga towards %s from its last savepoint\n", rec.Saga.Pack)
-	} else {
-		rec.Saga = &saga.Progress{Pack: recordRef(*packRef), Version: toB.Version, Values: v, Given: given, Policy: policy, Started: time.Now().UTC()}
-	}
-	sctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	run := &saga.Run{Plan: p, From: fromRel, To: toRel, Credentials: credentials, Exec: x, Record: rec,
-		Events: func(s string) { fmt.Println(s) }}
-	if err := run.Execute(sctx); err != nil {
-		return err
-	}
-	fmt.Println(strings.Join(strings.Fields(fmt.Sprintf("installed %s %s as %s on %s", toB.Name, toB.Version, *name, tf.target())), " "))
-	return nil
+	return cmd
 }
 
 // recordRef is how the installed version is found again: a registry

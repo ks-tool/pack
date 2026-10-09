@@ -2,9 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
+	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,46 +16,47 @@ import (
 	"github.com/ks-tool/pack/sdk/schema"
 )
 
-func runCheck(args []string) error {
-	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+func newCheckCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "check <dir|ref>", Short: "author checks on a component or composition directory, or a pack in a registry", Args: cobra.ExactArgs(1),
+		Long: `Author checks on a component directory (schema.json, templates/, image.json), on a
+composition directory (its components are the sibling dirs), or on a pack in a
+registry (oci://host/repo:tag — schemas and templates are read, no image).`}
+	fs := cmd.Flags()
 	plainHTTP := fs.Bool("plain-http", false, "the registry speaks plain HTTP")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 1 {
-		return errors.New("check: one argument — a component or composition directory, or a registry reference")
-	}
-	dir := fs.Arg(0)
-	var problems []check.Problem
-	if registry.IsRef(dir) || isComposition(dir) {
-		b, err := openPack(dir, *plainHTTP)
-		if err != nil {
-			return err
-		}
-		if problems, err = render.CheckBundle(b); err != nil {
-			return err
-		}
-	} else {
-		comps, err := componentsFromDir(dir)
-		if err != nil {
-			return err
-		}
-		for _, c := range comps {
-			ps, err := check.Run(c)
+	cmd.RunE = func(_ *cobra.Command, args []string) error {
+		dir := args[0]
+		var problems []check.Problem
+		if registry.IsRef(dir) || isComposition(dir) {
+			b, err := openPack(dir, *plainHTTP)
 			if err != nil {
-				return fmt.Errorf("%s: %w", c.Name, err)
+				return err
 			}
-			problems = append(problems, ps...)
+			if problems, err = render.CheckBundle(b); err != nil {
+				return err
+			}
+		} else {
+			comps, err := componentsFromDir(dir)
+			if err != nil {
+				return err
+			}
+			for _, c := range comps {
+				ps, err := check.Run(c)
+				if err != nil {
+					return fmt.Errorf("%s: %w", c.Name, err)
+				}
+				problems = append(problems, ps...)
+			}
 		}
+		for _, p := range problems {
+			fmt.Println(p)
+		}
+		if len(problems) > 0 {
+			return fmt.Errorf("%d problem(s)", len(problems))
+		}
+		fmt.Println("ok")
+		return nil
 	}
-	for _, p := range problems {
-		fmt.Println(p)
-	}
-	if len(problems) > 0 {
-		return fmt.Errorf("%d problem(s)", len(problems))
-	}
-	fmt.Println("ok")
-	return nil
+	return cmd
 }
 
 // isComposition: a schema whose keys are all pack:// references and which

@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"github.com/spf13/pflag"
 	"strings"
 
 	"github.com/ks-tool/pack/environment"
@@ -29,7 +29,7 @@ type targetFlags struct {
 // target is the target configure settled on.
 func (tf *targetFlags) target() string { return tf.chosen }
 
-func addTargetFlags(fs *flag.FlagSet) *targetFlags {
+func addTargetFlags(fs *pflag.FlagSet) *targetFlags {
 	tf := &targetFlags{
 		config:    fs.String("config", "", "the environment: a .yaml or .json file — target, provider, vault.addr and vault.paths (read with "+environment.EnvVaultToken+"), and any setting of the target; all of it, Vault's KV included, goes to the provider"),
 		name:      fs.String("target", "", "the system to render for, over the environment's (default "+defaultTarget+"); its provider pack-provider-<target> is run ("+provider.EnvPath+", beside pack, PATH)"),

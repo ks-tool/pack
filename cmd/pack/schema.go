@@ -1,28 +1,28 @@
 package main
 
 import (
-	"errors"
-	"flag"
 	"os"
+
+	"github.com/spf13/cobra"
 
 	"github.com/ks-tool/pack/sdk/platform"
 )
 
-// runSchema prints the vocabulary the tool ships, or a target's platform.
-func runSchema(args []string) error {
-	if len(args) == 0 {
-		return errors.New("schema: vocabulary | platform [--target t]")
-	}
-	switch args[0] {
-	case "vocabulary":
-		_, err := os.Stdout.Write(platform.PackV1)
-		return err
-	case "platform":
-		fs := flag.NewFlagSet("schema platform", flag.ContinueOnError)
-		tf := addTargetFlags(fs)
-		if err := fs.Parse(args[1:]); err != nil {
+// newSchemaCmd prints the vocabulary the tool ships, or a target's platform.
+func newSchemaCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "schema", Short: "print the x-pack-* vocabulary, or the platform schema a target joins to the pack's"}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "vocabulary",
+		Short: "the x-pack-* vocabulary (horchestra://pack/v1)",
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			_, err := os.Stdout.Write(platform.PackV1)
 			return err
-		}
+		},
+	})
+	pl := &cobra.Command{Use: "platform", Short: "the platform slot: the pack's half joined to the target's", Args: cobra.NoArgs}
+	tf := addTargetFlags(pl.Flags())
+	pl.RunE = func(*cobra.Command, []string) error {
 		inst, closeTarget, err := tf.configure("schema")
 		if err != nil {
 			return err
@@ -35,5 +35,6 @@ func runSchema(args []string) error {
 		_, err = os.Stdout.Write(append(slot, '\n'))
 		return err
 	}
-	return errors.New("schema: vocabulary | platform [--target t]")
+	cmd.AddCommand(pl)
+	return cmd
 }

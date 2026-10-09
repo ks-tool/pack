@@ -1,65 +1,33 @@
-// pack is the CLI of the pack tool — phase 1: everything that needs no cluster.
+// pack is the CLI of the pack tool: check, render, plan and drive a pack's
+// installation on a target, through the target's provider.
 package main
 
 import (
 	"fmt"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
-	}
-	var err error
-	switch os.Args[1] {
-	case "check":
-		err = runCheck(os.Args[2:])
-	case "template":
-		err = runTemplate(os.Args[2:])
-	case "plan":
-		err = runPlan(os.Args[2:])
-	case "apply":
-		err = runApply(os.Args[2:])
-	case "rollback":
-		err = runRollback(os.Args[2:])
-	case "schema":
-		err = runSchema(os.Args[2:])
-	case "help", "-h", "--help":
-		usage()
-		return
-	default:
-		_, _ = fmt.Fprintf(os.Stderr, "pack: unknown command %q\n", os.Args[1])
-		usage()
-		os.Exit(2)
-	}
-	if err != nil {
+	if err := newRootCmd().Execute(); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "pack:", err)
 		os.Exit(1)
 	}
 }
 
-func usage() {
-	_, _ = fmt.Fprint(os.Stderr, `usage:
-  pack check [--plain-http] <dir|ref>  author checks on a component directory (schema.json, templates/, image.json),
-                                       on a composition directory (its components are the sibling dirs), or on a
-                                       pack in a registry (oci://host/repo:tag — schemas and templates are read, no image)
-  pack template --pack <dir|ref> --values <file> --name <installation> [--target horchestra] [--set k=v ...]
-                [--namespace ns] [-o <dir>] [--plain-http] [--secretProvider generate|env|file:<dir> --secret /key/path/password ...]
-                                       render for a target — horchestra: the ApplicationSet and its config Secrets; no cluster needed
-  pack plan [--from <dir|ref>] --to <dir|ref> --values <file> [--target t] [--set k=v ...] [--savepoints auto|none|k1,k2]
-            [--no-rollback k1,k2|all] [--strict] [-o plan.yaml]
-                                       the saga: a first installation, or the upgrade between two versions
-  pack apply --pack <dir|ref> --values <file> --name <installation> [--target t] [--set k=v ...] [--savepoints …]
-             [--no-rollback …] [--strict] [--dry-run] [--from-start] [--secretProvider … --secret …]
-                                       install or upgrade: the target says what is installed, pack drives the saga
-                                       step by step and rolls a failed unit back; an unfinished saga continues from
-                                       its last savepoint (--from-start: from its first step); the target must perform steps
-  pack rollback --name <installation> [--target t] [--set k=v ...] [--dry-run]
-                                       an unfinished saga: undo every step of it in effect, savepointed units too;
-                                       a finished one: a saga back to the version it replaced
-  registries: PACK_REGISTRY_USER / PACK_REGISTRY_PASSWORD in the environment for credentials
-  pack schema vocabulary|platform [--target t]
-                                       print the x-pack-* vocabulary, or the schema a target gives the platform half
-`)
+func newRootCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:   "pack",
+		Short: "the package format for horchestra, and the tool that renders and installs it",
+		Long: `pack checks, renders, plans and installs a pack — from a directory or a registry
+(oci://<host>/<repo>:<tag>; schemas, templates and image configs are read, never image layers)
+— on a target, through the target's provider.
+
+Registries: PACK_REGISTRY_USER / PACK_REGISTRY_PASSWORD in the environment for credentials.`,
+		SilenceUsage:  true, // a refusal is not a misuse: the error says what is wrong
+		SilenceErrors: true, // main prints it, as "pack: …"
+	}
+	root.AddCommand(newCheckCmd(), newTemplateCmd(), newPlanCmd(), newApplyCmd(), newRollbackCmd(), newSchemaCmd())
+	return root
 }
