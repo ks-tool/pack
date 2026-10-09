@@ -314,3 +314,47 @@ func TestPlan_ConfigOnlyChange(t *testing.T) {
 		t.Errorf("changes: %v", kinds)
 	}
 }
+
+// Undoing postgres's upgrade runs the INSTALLED version's downgrade hooks:
+// a preDowngrade hook of postgres 15.6, its `when` matched against the
+// reverse transition (16.3 → 15.6), its image the version being restored.
+func TestPlan_RollbackHooks(t *testing.T) {
+	prev := previousVersion(t)
+	sf := filepath.Join(filepath.Dir(prev), "postgres", "schema.json")
+	raw, err := os.ReadFile(sf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	xp := doc["x-pack"].(map[string]any)
+	xp["hooks"] = append(xp["hooks"].([]any), map[string]any{
+		"name": "dump", "phase": "preDowngrade", "command": []any{"pg_dumpall"}, "exclusive": true,
+		"when": map[string]any{"from": ">=16", "to": "<16"},
+	})
+	raw, _ = json.Marshal(doc)
+	if err := os.WriteFile(sf, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v := values(t)
+	fromB, fromOut := load(t, prev, v)
+	toB, toOut := load(t, filepath.Join("..", "examples", "adh"), v)
+	p, err := Build(Input{From: fromB, To: toB, FromOut: fromOut, ToOut: toOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"ranger-db", "hive-db"} {
+		kr, ok := p.Rollback[key]
+		if !ok || !kr.Stop || len(kr.Pre) != 1 || kr.Pre[0].Name != "dump" || !strings.HasSuffix(kr.Pre[0].Image, ":15.6") {
+			t.Errorf("%s: rollback %+v", key, kr)
+		}
+	}
+	if _, ok := p.Rollback["kafka"]; ok {
+		t.Error("kafka has no downgrade hooks: nothing beyond the previous unit")
+	}
+	if !strings.Contains(p.Text(), "rollback of ranger-db: stop → preDowngrade dump → apply the previous unit") {
+		t.Errorf("the plan must show how the upgrade is undone:\n%s", p.Text())
+	}
+}

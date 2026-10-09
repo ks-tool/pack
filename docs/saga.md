@@ -214,8 +214,12 @@ target without it renders (`pack template`) and refuses `apply`.
 5. **A failed step** rolls its unit back, in reverse plan order, until the
    rollback policy stops it: a hook that ran is compensated (one without
    `compensate` is left as it is); an `apply` is undone by applying the
-   previous unit, or by removing a key the saga added; a `remove` by
-   applying the previous unit. The failed step itself counts as performed
+   previous unit — for a key that changed version, between the installed
+   version's hooks for the reverse transition (`preDowngrade`, apply,
+   `postDowngrade` for an upgrade; a stop first when a pre hook is
+   exclusive; `new` is the version restored, `old` the one rolled back;
+   `pack plan` prints them as "rollback of <key>") — or by removing a key
+   the saga added; a `remove` by applying the previous unit. The failed step itself counts as performed
    if it was an `apply` or a `remove` — it may have half-happened — and
    never if it was a hook. Units behind a savepoint stay.
 6. The record says `installed` with the new version, or `failed` with the
@@ -232,6 +236,4 @@ target without it renders (`pack template`) and refuses `apply`.
    unfinished saga is refused; `--from-start` runs the saga from its first
    step, or starts the new one over the unfinished.
 
-Not yet: running the `preDowngrade`/`postDowngrade` hooks while rolling an
-`apply` back (the previous unit is applied as it is), and `pack rollback`
-of committed units.
+Not yet: `pack rollback` of committed units.

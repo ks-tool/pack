@@ -125,7 +125,7 @@ func TestFailureRollsTheUnitBack(t *testing.T) {
 	if rec.State != Failed || rec.Saga == nil || rec.Saga.Failed != 6 || rec.Pack != "old" {
 		t.Errorf("record after failure: %+v %+v", rec, rec.Saga)
 	}
-	if got := fmt.Sprint(rec.Saga.RolledBack); got != "[apply c hook b remove b]" {
+	if got := fmt.Sprint(rec.Saga.RolledBack); got != "[apply c hook b init remove b]" {
 		t.Errorf("rolled back: %s", got)
 	}
 }
@@ -236,5 +236,31 @@ func TestResumeUndoesWhatThePolicyLeft(t *testing.T) {
 		"apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2", "wait c"}
 	if !reflect.DeepEqual(m.log, want) {
 		t.Errorf("resumed steps:\n got %v\nwant %v", m.log, want)
+	}
+}
+
+// Undoing c's apply — c changes version — runs the installed version's
+// downgrade hooks around applying the previous unit: stop (the pre hook is
+// exclusive), preDowngrade, apply c:1, postDowngrade; c's migrate hook has no
+// compensate and is left as it is.
+func TestRollbackRunsDowngradeHooks(t *testing.T) {
+	p, from, to := upgrade()
+	p.Rollback = map[string]plan.KeyRollback{"c": {
+		Stop: true,
+		Pre:  []plan.Step{{Key: "c", Kind: plan.Hook, Name: "unmigrate", Phase: "preDowngrade", Exclusive: true, Image: "c:1", Command: []string{"unmigrate"}}},
+		Post: []plan.Step{{Key: "c", Kind: plan.Hook, Name: "reindex", Phase: "postDowngrade", Image: "c:1", Command: []string{"reindex"}}},
+	}}
+	m := &memory{fail: "wait c"}
+	rec, err := run(t, m, p, from, to)
+	if err == nil {
+		t.Fatal("the saga must fail")
+	}
+	want := []string{"apply a a:2", "wait a", "apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2", "wait c",
+		"undo stop c", "undo hook c c:1", "undo apply c c:1", "undo hook c c:1", "undo hook b b:2", "undo remove b"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("steps:\n got %v\nwant %v", m.log, want)
+	}
+	if got := fmt.Sprint(rec.Saga.RolledBack); got != "[stop c hook c unmigrate apply c hook c reindex hook b init remove b]" {
+		t.Errorf("rolled back: %s", got)
 	}
 }

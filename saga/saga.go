@@ -282,13 +282,12 @@ func (r *Run) undoUnit(ctx context.Context, u plan.Unit, performed func(plan.Ste
 		slices.Reverse(steps)
 		applied := slices.ContainsFunc(steps, func(s plan.Step) bool { return s.Kind == plan.Apply })
 		for _, s := range steps {
-			st, undo := r.undo(s, applied)
-			if undo {
+			for _, st := range r.undo(s, applied) {
 				r.Events(strings.TrimSpace(fmt.Sprintf("rollback: %s %s %s", key, st.Kind, st.Name)))
 				if err := r.step(ctx, st); err != nil {
 					return fmt.Errorf("undo step %d (%s %s): %w", s.N, s.Kind, key, err)
 				}
-				r.Record.Saga.RolledBack = append(r.Record.Saga.RolledBack, st.Kind+" "+key)
+				r.Record.Saga.RolledBack = append(r.Record.Saga.RolledBack, strings.TrimSpace(st.Kind+" "+key+" "+st.Name))
 			}
 			r.setDone(s.N, false)
 			if err := Write(r.Exec, r.Record); err != nil {
@@ -299,36 +298,65 @@ func (r *Run) undoUnit(ctx context.Context, u plan.Unit, performed func(plan.Ste
 	return nil
 }
 
-// undo is the step that undoes s, if any.
-func (r *Run) undo(s plan.Step, applied bool) (target.Step, bool) {
+// undo is what undoes s: nothing, a compensation, or — for an apply of a
+// key that changed version — the plan's downgrade hooks around applying the
+// previous unit.
+func (r *Run) undo(s plan.Step, applied bool) []target.Step {
 	to, prev := unit(r.To, s.Key), unit(r.From, s.Key)
 	base := target.Step{N: s.N, Key: s.Key, Rollback: true, Timeout: s.Timeout, Credentials: r.credentials(s.Key)}
 	switch s.Kind {
 	case plan.Hook:
 		if len(s.CompensateCommand) == 0 {
-			return base, false
+			return nil
 		}
 		base.Kind, base.Name, base.Phase, base.Image, base.Command = string(plan.Hook), s.Name, s.Phase, s.CompensateImage, s.CompensateCommand
 		base.Unit, base.Previous = to, prev
-		return base, true
+		return []target.Step{base}
 	case plan.Apply:
 		if prev == nil {
 			base.Kind, base.Previous = string(plan.Remove), to // the key was added: it goes
-			return base, true
+			return []target.Step{base}
 		}
-		base.Kind, base.Unit, base.Previous = string(plan.Apply), prev, to
-		return base, true
+		apply := base
+		apply.Kind, apply.Unit, apply.Previous = string(plan.Apply), prev, to
+		kr, ok := r.Plan.Rollback[s.Key]
+		if !ok {
+			return []target.Step{apply}
+		}
+		hook := func(h plan.Step) target.Step {
+			st := base
+			st.Kind, st.Name, st.Phase, st.Timeout, st.Exclusive = string(plan.Hook), h.Name, h.Phase, h.Timeout, h.Exclusive
+			st.Image, st.Command, st.Unit, st.Previous = h.Image, h.Command, prev, to
+			return st
+		}
+		var out []target.Step
+		if kr.Stop {
+			stop := base
+			stop.Kind, stop.Unit, stop.Previous = string(plan.Stop), to, prev
+			out = append(out, stop)
+		}
+		for _, h := range kr.Pre {
+			out = append(out, hook(h))
+		}
+		out = append(out, apply)
+		for _, h := range kr.Post {
+			out = append(out, hook(h))
+		}
+		return out
 	case plan.Remove:
+		if prev == nil {
+			return nil
+		}
 		base.Kind, base.Unit = string(plan.Apply), prev
-		return base, prev != nil
+		return []target.Step{base}
 	case plan.Stop:
 		if applied || prev == nil {
-			return base, false // the apply's own undo starts it again
+			return nil // the apply's own undo starts it again
 		}
 		base.Kind, base.Unit, base.Previous = string(plan.Apply), prev, to
-		return base, true
+		return []target.Step{base}
 	}
-	return base, false
+	return nil
 }
 
 func unitOf(p *plan.Plan, n int) (plan.Unit, bool) {

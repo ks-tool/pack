@@ -99,6 +99,21 @@ type Plan struct {
 	Units     []Unit   `json:"units"`
 	Policy    Policy   `json:"policy"`
 	Warnings  []string `json:"warnings,omitempty"`
+	// Rollback says how an apply of a key that changes version is undone
+	// beyond applying the previous unit: the downgrade hooks around it.
+	Rollback map[string]KeyRollback `json:"rollback,omitempty"`
+}
+
+// KeyRollback is what undoing a key's apply runs around applying its previous
+// unit: the installed version's hooks for the reverse transition — the
+// component's (preDowngrade/postDowngrade of an upgrade, preUpgrade/
+// postUpgrade of a downgrade) and the composition's — and a stop first when
+// a pre hook is exclusive. Images: new is the version being restored, old
+// the one being rolled back.
+type KeyRollback struct {
+	Stop bool   `json:"stop,omitempty"`
+	Pre  []Step `json:"pre,omitempty"`
+	Post []Step `json:"post,omitempty"`
 }
 
 // Input is everything the plan is derived from. From nil is a first
@@ -206,6 +221,24 @@ func Build(in Input) (*Plan, error) {
 		if c.Kind == "removed" {
 			add(Step{Key: c.Key, Kind: Remove, Detail: "no longer in the pack; children are weeded, PVs stay", Compensate: "apply " + c.From})
 			stepsOf[c.Key] = []int{len(p.Steps)}
+		}
+	}
+
+	// how each changed version is undone
+	for _, key := range order {
+		c, ok := changed[key]
+		if !ok || c.Kind != "image" || in.From == nil {
+			continue
+		}
+		dir := c.Direction
+		if len(dir) == 0 {
+			dir = p.Direction
+		}
+		if kr, ok := rollbackOf(in, key, c, dir, p); ok {
+			if p.Rollback == nil {
+				p.Rollback = map[string]KeyRollback{}
+			}
+			p.Rollback[key] = kr
 		}
 	}
 
@@ -436,6 +469,53 @@ func systemHooks(b *bundle.Bundle, key, dir string) (pre, post []packschema.Hook
 	return pre, post
 }
 
+// rollbackOf is the reverse of a key's version transition: the installed
+// version's hooks for it, their images resolved against the two versions
+// the other way round.
+func rollbackOf(in Input, key string, c Change, dir string, p *Plan) (KeyRollback, bool) {
+	fromName, ok := in.From.KeyComponent[key]
+	if !ok {
+		return KeyRollback{}, false
+	}
+	fromComp := in.From.Components[fromName]
+	revDir := "downgrade"
+	if dir == "downgrade" {
+		revDir = "upgrade"
+	}
+	rev := Change{Key: key, Component: fromComp.Name, From: c.To, To: c.From, Kind: c.Kind, Direction: revDir}
+	scratch := &Plan{}
+	pre, post := selectHooks(fromComp, rev, revDir, scratch)
+	sysPre, sysPost := systemHooks(in.From, key, revDir)
+	pre, post = append(sysPre, pre...), append(post, sysPost...)
+	for _, w := range scratch.Warnings {
+		p.Warnings = append(p.Warnings, "rollback: "+w)
+	}
+	if len(pre) == 0 && len(post) == 0 {
+		return KeyRollback{}, false
+	}
+	image := func(sel string) string {
+		switch sel {
+		case "", "new":
+			return fromComp.ImageRef
+		case "old":
+			return in.To.Components[in.To.KeyComponent[key]].ImageRef
+		}
+		if m, ok := in.From.Components[sel]; ok {
+			return m.ImageRef
+		}
+		return ""
+	}
+	var kr KeyRollback
+	for _, h := range pre {
+		kr.Stop = kr.Stop || h.Exclusive
+		kr.Pre = append(kr.Pre, hookStep(key, h, rev, image))
+	}
+	for _, h := range post {
+		kr.Post = append(kr.Post, hookStep(key, h, rev, image))
+	}
+	return kr, true
+}
+
 // images resolves a hook's image for a key: new (the default) — the key's
 // image in the target version, old — in the installed one, anything else —
 // the member of that name (a composition hook).
@@ -638,6 +718,24 @@ func (p *Plan) Text() string {
 		irr = "steps " + strings.Join(irreversible, ", ")
 	}
 	_, _ = fmt.Fprintf(&b, "rollback policy: %s; irreversible: %s\n", policy, irr)
+	for _, key := range p.Order {
+		kr, ok := p.Rollback[key]
+		if !ok {
+			continue
+		}
+		var parts []string
+		if kr.Stop {
+			parts = append(parts, "stop")
+		}
+		for _, s := range kr.Pre {
+			parts = append(parts, s.Phase+" "+s.Name)
+		}
+		parts = append(parts, "apply the previous unit")
+		for _, s := range kr.Post {
+			parts = append(parts, s.Phase+" "+s.Name)
+		}
+		_, _ = fmt.Fprintf(&b, "rollback of %s: %s\n", key, strings.Join(parts, " → "))
+	}
 	for _, w := range p.Warnings {
 		_, _ = fmt.Fprintf(&b, "warning: %s\n", w)
 	}
