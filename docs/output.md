@@ -70,7 +70,7 @@ spec:
 | `spec.command`, `spec.args` | `image.json` Entrypoint/Cmd, or `x-pack.command`; then every `arg=` leaf in declaration order |
 | `spec.env` | `env=` leaves (string → `value`, Secret → `secretRef`), then `platform.env` |
 | `spec.ports` | the `ports` object (`const`), sorted by name |
-| `spec.resources` | `platform.resources` |
+| `spec.resources` | `platform.resources` — horchestra's platform schema (`target/horchestra/platform.json`) |
 | `spec.placement` | `platform.placement` (`nodeSelector`, `queue`, `priority`) plus the anti-affinity for `spread` |
 | `spec.readiness` | `x-pack.readiness`, port names resolved to numbers |
 | `spec.volumes` | claims → `pv`; libraries → `image` with `merge`; config directories → `secret` with `merge`; `format: secret` files → the referenced Secret mounted with `merge`, one mount per (directory, Secret) |

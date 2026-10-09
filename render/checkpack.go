@@ -6,7 +6,6 @@ import (
 
 	"github.com/ks-tool/pack/bundle"
 	"github.com/ks-tool/pack/sdk/check"
-	"github.com/ks-tool/pack/sdk/compute"
 	"github.com/ks-tool/pack/sdk/packschema"
 	"github.com/ks-tool/pack/sdk/schema"
 )
@@ -78,10 +77,8 @@ func CheckBundle(b *bundle.Bundle) ([]check.Problem, error) {
 			}
 		}
 	}
-	// files: one path, one owner across a component and its libraries; a
-	// composition's minimum below the component's own default is pointless
+	// files: one path, one owner across a component and its libraries
 	for _, key := range b.Keys {
-		comp := b.Components[b.KeyComponent[key]]
 		owners := map[string]string{}
 		err := b.Composition.Visit(func(ptr string, _ *schemaT, n *schemaNode) error {
 			if !strings.HasPrefix(ptr, "/"+key+"/") || n.File == nil {
@@ -95,29 +92,6 @@ func CheckBundle(b *bundle.Bundle) ([]check.Problem, error) {
 		})
 		if err != nil {
 			return nil, err
-		}
-		ann, _ := b.Composition.Root.Properties[key].KeyAnnotation()
-		if len(ann.Minimum) > 0 {
-			defaults, _, err := comp.Schema.Defaults()
-			if err == nil {
-				if dm, ok := defaults.(map[string]any); ok {
-					if pl, ok := dm["platform"].(map[string]any); ok {
-						if res, ok := pl["resources"].(map[string]any); ok {
-							if rq, ok := res["requests"].(map[string]any); ok {
-								for name, min := range ann.Minimum {
-									if have, ok := rq[name].(string); ok {
-										hv, e1 := compute.Quantity(have)
-										mv, e2 := compute.Quantity(min)
-										if e1 == nil && e2 == nil && mv < hv {
-											add("/"+key+"/x-pack/minimum/"+name, "%s is below the component's own default %s: the minimum changes nothing", min, have)
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
 		}
 	}
 	_ = packschema.PackScheme

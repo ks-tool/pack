@@ -97,7 +97,7 @@ composition's own order is kept.
 - `spread` — the component's replicas must land on different hosts:
   rendered as a required anti-affinity on the set's reserved labels
   (`horchestra.io/application-set`, `horchestra.io/component`).
-- `minimum=memory:4Gi;cpu:2` — a lower bound on `platform.resources.requests`
+- `minimum=memory:4Gi;cpu:2` — a lower bound on the key's requests, which the target checks in its own words (horchestra: `platform.resources.requests`)
   for this key; the composition may demand more than the component asks for
   itself. The validator refuses values below it, with the numbers.
 

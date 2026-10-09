@@ -1,6 +1,7 @@
 package horchestra
 
 import (
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ks-tool/pack/bundle"
 	"github.com/ks-tool/pack/render"
+	"github.com/ks-tool/pack/sdk/compute"
 )
 
 const (
@@ -29,11 +31,19 @@ type Context struct {
 	Namespace    string
 }
 
-// Names is how horchestra names and reaches what it runs: a key is the
-// service <installation>-<key>, replica i of it <service>-<i>, reached at
-// <service>-<i>.<service>.<namespace>.
-func (c Context) Names() render.Names { return names{c.Installation, c.Namespace} }
+//go:embed platform.json
+var platformSchema []byte
 
+// PlatformSchema is horchestra's platform: replicas, resources, placement,
+// additive env, metadata.
+func PlatformSchema() []byte { return platformSchema }
+
+// Target is what the render asks of horchestra, for this installation.
+func (c Context) Target() render.Target { return names{c.Installation, c.Namespace} }
+
+// names is how horchestra names and reaches what it runs: a key is the
+// service <installation>-<key>, replica i of it <service>-<i>, reached at
+// <service>-<i>.<service>.<namespace> — and what its platform means.
 type names struct{ installation, namespace string }
 
 func (n names) Service(key string) string { return n.installation + "-" + key }
@@ -49,10 +59,59 @@ func (n names) Address(key string, i int) string {
 
 func (n names) Namespace() string { return n.namespace }
 
+func (names) PlatformSchema() []byte { return platformSchema }
+
+// Replicas: platform.replicas, 1 when the operator gave none.
+func (names) Replicas(_ string, platform map[string]any) (int, error) {
+	if n, ok := toInt(platform["replicas"]); ok {
+		return n, nil
+	}
+	return 1, nil
+}
+
+// Limits: platform.resources.limits, memory in bytes, cpu in millicores.
+func (names) Limits(_ string, platform map[string]any) (map[string]any, error) {
+	res, _ := platform["resources"].(map[string]any)
+	lim, _ := res["limits"].(map[string]any)
+	out := map[string]any{}
+	for name, div := range map[string]int64{"memory": 1000, "cpu": 1} {
+		v, ok := lim[name].(string)
+		if !ok {
+			continue
+		}
+		q, err := compute.Quantity(v)
+		if err != nil {
+			return nil, fmt.Errorf("platform.resources.limits.%s: %w", name, err)
+		}
+		out[name] = q / div
+	}
+	return out, nil
+}
+
+// ValidatePlatform holds platform.resources.requests to the composition's minimum.
+func (names) ValidatePlatform(key string, platform map[string]any, minimum map[string]string) []string {
+	res, _ := platform["resources"].(map[string]any)
+	req, _ := res["requests"].(map[string]any)
+	var problems []string
+	for name, min := range minimum {
+		have, ok := req[name].(string)
+		if !ok {
+			problems = append(problems, fmt.Sprintf("/%s/platform/resources/requests/%s: the composition requires at least %s", key, name, min))
+			continue
+		}
+		hv, err1 := compute.Quantity(have)
+		mv, err2 := compute.Quantity(min)
+		if err1 == nil && err2 == nil && hv < mv {
+			problems = append(problems, fmt.Sprintf("/%s/platform/resources/requests/%s: %s is below the composition's minimum %s", key, name, have, min))
+		}
+	}
+	return problems
+}
+
 // Render renders a bundle for horchestra: render.Render with its names, then
 // Convert.
 func Render(b *bundle.Bundle, v render.Values, ctx Context) (*Output, error) {
-	rel, err := render.Render(b, v, render.Context{Installation: ctx.Installation, Names: ctx.Names()})
+	rel, err := render.Render(b, v, render.Context{Installation: ctx.Installation, Target: ctx.Target()})
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +168,8 @@ func application(u render.Unit, ctx Context, report map[string][]string) (*Named
 		app.Spec.Lifecycle = &Lifecycle{RestartPolicy: u.RestartPolicy}
 	}
 	app.Spec.Command, app.Spec.Args = u.Command, u.Args
+
+	// env: the component's, then the platform's additive ones
 	for _, e := range u.Env {
 		ev := EnvVar{Name: e.Name, Value: e.Value}
 		if e.Secret != nil {
@@ -116,16 +177,40 @@ func application(u render.Unit, ctx Context, report map[string][]string) (*Named
 		}
 		app.Spec.Env = append(app.Spec.Env, ev)
 	}
+	if pe, ok := u.Platform["env"].([]any); ok {
+		for _, e := range pe {
+			em, _ := e.(map[string]any)
+			name, _ := em["name"].(string)
+			for _, existing := range u.Env {
+				if existing.Name == name {
+					return nil, nil, fmt.Errorf("platform.env %s: the component declares that variable", name)
+				}
+			}
+			ev := EnvVar{Name: name}
+			if sr, ok := em["secretRef"].(map[string]any); ok {
+				ev.SecretRef = &SecretRef{}
+				ev.SecretRef.Name, _ = sr["name"].(string)
+				ev.SecretRef.Key, _ = sr["key"].(string)
+			} else {
+				ev.Value, _ = em["value"].(string)
+			}
+			app.Spec.Env = append(app.Spec.Env, ev)
+		}
+	}
 	for _, p := range u.Ports {
 		app.Spec.Ports = append(app.Spec.Ports, Port{Name: p.Name, Port: p.Port})
 	}
-	if u.Resources != nil {
-		app.Spec.Resources = &Resources{Requests: u.Resources.Requests, Limits: u.Resources.Limits}
+	if res, ok := u.Platform["resources"].(map[string]any); ok {
+		app.Spec.Resources = &Resources{Requests: strMap(res["requests"]), Limits: strMap(res["limits"])}
 	}
 
 	// placement: horchestra's own words, read from the platform subtree
 	pl := &Placement{}
+	spread := u.Spread
 	if pp, ok := u.Platform["placement"].(map[string]any); ok {
+		if s, _ := pp["spread"].(string); s == "host" {
+			spread = true
+		}
 		pl.NodeSelector = strMap(pp["nodeSelector"])
 		pl.Queue, _ = pp["queue"].(string)
 		if pr, ok := toInt(pp["priority"]); ok {
@@ -133,7 +218,7 @@ func application(u render.Unit, ctx Context, report map[string][]string) (*Named
 			pl.Priority = &p32
 		}
 	}
-	if u.Spread {
+	if spread {
 		pl.Affinity = &Affinity{WorkloadAntiAffinity: &WorkloadAffinity{Required: []AffinityTerm{{
 			TopologyKey: "horchestra.io/hostname", LabelSelector: map[string]string{LabelSet: ctx.Installation, LabelComponent: u.Key}}}}}
 	}

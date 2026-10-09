@@ -72,7 +72,7 @@ func load(t *testing.T, dir string, v render.Values) (*bundle.Bundle, *render.Re
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := render.Render(b, v, render.Context{Installation: "prod", Names: horchestra.Context{Installation: "prod", Namespace: "data"}.Names()})
+	out, err := render.Render(b, v, render.Context{Installation: "prod", Target: horchestra.Context{Installation: "prod", Namespace: "data"}.Target()})
 	if err != nil {
 		t.Fatal(err)
 	}

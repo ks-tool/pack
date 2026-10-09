@@ -117,7 +117,7 @@ func IsInstall(phase string) bool { return phase == "preInstall" || phase == "po
 
 // The two foreign $ref schemes a component schema may use.
 const (
-	PlatformRef = "horchestra://platform/v1#/$defs/component"
+	PlatformRef = "urn:pack:platform"
 	PackScheme  = "pack://"
 )
 

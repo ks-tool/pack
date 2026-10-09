@@ -92,7 +92,7 @@ func TestTarget(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &v); err != nil {
 		t.Fatal(err)
 	}
-	rel, err := render.Render(b, v, render.Context{Installation: "prod", Names: inst.Names()})
+	rel, err := render.Render(b, v, render.Context{Installation: "prod", Target: inst})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,5 +114,32 @@ func TestTarget(t *testing.T) {
 	last := out.Files[len(out.Files)-1]
 	if last.Path != "report.yaml" || last.Stream {
 		t.Errorf("the report is a file, not part of the stream: %+v", last.Path)
+	}
+}
+
+// The platform subtree is validated by horchestra's schema, not the pack's:
+// placement passes, volumes — gone from the schema — is refused.
+func TestPlatformSchema(t *testing.T) {
+	b, err := bundle.Load(filepath.Join("..", "..", "examples", "postgres"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pg := func(platform map[string]any) render.Values {
+		return render.Values{Values: map[string]any{"postgres": map[string]any{
+			"database":  "app",
+			"superuser": map[string]any{"password": map[string]any{"secretRef": map[string]any{"name": "pg", "key": "password"}}},
+			"platform":  platform,
+		}}}
+	}
+	ctx := Context{Installation: "dev", Namespace: "apps"}
+	out, err := Render(b, pg(map[string]any{"placement": map[string]any{"queue": "q"}}), ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl := out.Set.Spec.Applications[0].Spec.Placement; pl == nil || pl.Queue != "q" {
+		t.Errorf("placement is horchestra's to read: %+v", pl)
+	}
+	if _, err := Render(b, pg(map[string]any{"volumes": []any{map[string]any{}}}), ctx); err == nil || !strings.Contains(err.Error(), "'volumes' not allowed") {
+		t.Errorf("platform.volumes must be refused: %v", err)
 	}
 }

@@ -22,9 +22,10 @@ values:
 rollout: {maxUnavailable: 1}
 ```
 
-- Under each key, `platform` is the **platform half** — replicas, resources,
-  placement, additive `env`/`volumes`, labels — shaped by one schema for
-  every pack. Everything else is the **application half**, shaped by the
+- Under each key, `platform` is the **platform half**, in the words of the
+  target the pack is rendered for — for horchestra: replicas, resources,
+  placement, additive `env`, labels (`pack schema platform --target
+  horchestra`). Everything else is the **application half**, shaped by the
   component.
 - A library's settings sit under its key inside the consumer (`kafka.jdk.gc`).
 - A credential is only ever a reference, `{secretRef: {name, key}}`; a
@@ -78,7 +79,7 @@ they run once per replica when the `perInstance` file is rendered.
 | variable | contents |
 |---|---|
 | `values` | the formula's subtree: the key's, after defaults and settled formulas (for a library's formula, the library's subtree) |
-| `platform` | the key's `platform` object |
+| `limits` | what the target tells of the key's limits: `memory` in bytes, `cpu` in millicores; absent where there is none |
 | `common` | the composition's `common` |
 | `me` | `{service, instances, replicas, ports}` of the key |
 | `peers.<role>` | the same for the key the role is bound to; absent when an optional role is unbound |

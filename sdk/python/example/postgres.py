@@ -64,7 +64,7 @@ class Postgres(Component):
 
     def compute(self) -> dict[str, str]:
         return {"/conf/shared_buffers":
-                "has(platform.resources.limits.memory) ? string(quantity(platform.resources.limits.memory) / 1000 / 1048576 / 4) + 'MB' : '128MB'"}
+                "has(limits.memory) ? string(limits.memory / 1048576 / 4) + 'MB' : '128MB'"}
 
 
 if __name__ == "__main__":

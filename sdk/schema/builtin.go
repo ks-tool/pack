@@ -7,12 +7,13 @@ import (
 )
 
 // AttachBuiltins gives a schema the two resources the CLI ships: the platform
-// half and the pack vocabulary's definitions. Every component needs them.
+// slot (open — a target fills it when a render validates) and the pack
+// vocabulary's definitions. Every component needs them.
 func (s *Schema) AttachBuiltins() error {
 	for _, b := range []struct {
 		url string
 		raw []byte
-	}{{platform.PlatformID, platform.PlatformV1}, {platform.PackID, platform.PackV1}} {
+	}{{platform.SlotID, platform.Slot}, {platform.PackID, platform.PackV1}} {
 		if _, done := s.Foreign[b.url]; done {
 			continue
 		}

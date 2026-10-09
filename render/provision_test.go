@@ -15,7 +15,7 @@ func TestProvision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := Context{Installation: "dev", Names: testNames{"dev", "apps"}}
+	ctx := ctxOf("dev", "apps")
 
 	// generate: a Secret per pointer, the reference written into the values, the render sees it
 	v := Values{Values: map[string]any{"postgres": map[string]any{"database": "app"}}}

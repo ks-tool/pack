@@ -70,6 +70,6 @@ public final class Postgres implements Component {
     @Override
     public Map<String, String> compute() {
         return Map.of("/conf/shared_buffers",
-                "has(platform.resources.limits.memory) ? string(quantity(platform.resources.limits.memory) / 1000 / 1048576 / 4) + 'MB' : '128MB'");
+                "has(limits.memory) ? string(limits.memory / 1048576 / 4) + 'MB' : '128MB'");
     }
 }

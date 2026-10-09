@@ -140,14 +140,14 @@ class Resources:
 
 @dataclass
 class Platform:
-    """The platform half under horchestra's schema. Use as
-    `platform: Platform = Platform.sized("500m", "512Mi")`; it reflects to
-    {"$ref": "horchestra://platform/v1#/$defs/component", "default": …}."""
+    """The platform half: its schema is the target's (the platform slot). Use
+    as `platform: Platform = Platform.sized("500m", "512Mi")`; it reflects to
+    {"$ref": "urn:pack:platform", "default": …}. Placement is not here — it
+    is the operator's, in the target's words."""
     replicas: int = 0
     resources: Resources = field(default_factory=Resources)
-    placement: dict[str, Any] = field(default_factory=dict)
 
-    REF = "horchestra://platform/v1#/$defs/component"
+    REF = "urn:pack:platform"
 
     @classmethod
     def sized(cls, cpu: str, memory: str, replicas: int = 0) -> "Platform":

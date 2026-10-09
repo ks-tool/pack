@@ -6,7 +6,7 @@
 // the rest.
 //
 //	type PgInit struct {
-//	    sdk.Workload                    // scale (single | replicas) and platform (replicas, resources, placement — horchestra's schema)
+//	    sdk.Workload                    // scale (single | replicas) and platform (replicas, resources — the target's schema)
 //	    DB   DB   `json:"db"`
 //	    Init Init `json:"init" pack:"file=/opt/pack/pg-init.sh,format=template,template=pg-init.sh.tmpl,parseAs=text,mode=0500"`
 //	}
@@ -73,12 +73,12 @@ type Composition interface {
 // ---- embeddable pieces
 
 // Workload is what every running component has: the scale fact (single or
-// replicas) and the platform half of its values — replicas, resources,
-// placement — under horchestra's own schema. Embed it; set the default with
-// Single or Replicated.
+// replicas) and the platform half of its values — replicas, resources, env,
+// metadata — whose schema and meaning the target gives (the platform slot).
+// Embed it; set the default with Single or Replicated.
 type Workload struct {
 	Scale    string   `json:"scale" pack:"const"`
-	Platform Platform `json:"platform" pack:"ref=horchestra://platform/v1#/$defs/component,default"`
+	Platform Platform `json:"platform" pack:"ref=urn:pack:platform,default"`
 }
 
 // Single is a single-instance workload with the given requests and a memory
@@ -107,12 +107,6 @@ func (w Workload) Limits(memory string) Workload {
 	p := w.Platform
 	p.Resources.Limits = map[string]string{"memory": memory}
 	w.Platform = p
-	return w
-}
-
-// Placement sets the default placement (queue, nodeSelector, spread).
-func (w Workload) Placement(p *Placement) Workload {
-	w.Platform.Placement = p
 	return w
 }
 

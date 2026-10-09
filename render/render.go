@@ -1,7 +1,6 @@
 package render
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -17,10 +16,29 @@ import (
 )
 
 // Context is what the bundle cannot know: under what name it is being
-// installed, and how the target it is installed on names what it runs.
+// installed, and the target it is installed on.
 type Context struct {
 	Installation string
-	Names        Names
+	Target       Target
+}
+
+// Target is what the render asks of the system it renders for. A key's
+// platform subtree is the target's: its schema, how many instances it means,
+// what it says about limits, whether it meets the composition's minimum —
+// the render reads none of it itself.
+type Target interface {
+	Names
+	// PlatformSchema is the schema of a key's platform subtree in the
+	// target's words; its $id is platform.SlotID.
+	PlatformSchema() []byte
+	// Replicas is how many instances a key of scale: replicas runs.
+	Replicas(key string, platform map[string]any) (int, error)
+	// Limits are the facts formulas read as `limits`: memory in bytes, cpu
+	// in millicores, absent where the target has no limit to tell.
+	Limits(key string, platform map[string]any) (map[string]any, error)
+	// ValidatePlatform checks a key's platform against what the composition
+	// requires of it (x-pack.minimum), one "pointer: message" per problem.
+	ValidatePlatform(key string, platform map[string]any, minimum map[string]string) []string
 }
 
 // Names is the one part of a target the render sees: how it names and
@@ -78,6 +96,10 @@ type render struct {
 	keys   []string
 	order  []string
 	report Report
+	// instances and limits are the target's answers about each selected key,
+	// asked once the platform subtrees are settled (resolve).
+	instances map[string]int
+	limits    map[string]map[string]any
 }
 
 // Render runs the link: configure → mutate → validate → convert, and stops at
@@ -86,16 +108,19 @@ func Render(b *bundle.Bundle, v Values, ctx Context) (*Release, error) {
 	if len(ctx.Installation) == 0 {
 		return nil, errors.New("an installation name is required (--name)")
 	}
-	if ctx.Names == nil {
-		return nil, errors.New("a target's Names is required: the render cannot address a neighbour without one")
+	if ctx.Target == nil {
+		return nil, errors.New("a target is required: the render cannot size or address a key without one")
 	}
 	env, err := compute.Env()
 	if err != nil {
 		return nil, err
 	}
 	r := &render{b: b, ctx: ctx, env: env, userSet: map[string]bool{}, peers: map[string]map[string]string{},
-		report: Report{Installation: ctx.Installation, Namespace: ctx.Names.Namespace(), Pack: b.Name, Computed: map[string]any{}}}
+		report: Report{Installation: ctx.Installation, Namespace: ctx.Target.Namespace(), Pack: b.Name, Computed: map[string]any{}}}
 	if err := r.configure(v); err != nil {
+		return nil, err
+	}
+	if err := r.resolve(); err != nil {
 		return nil, err
 	}
 	if err := r.mutate(); err != nil {
@@ -504,11 +529,10 @@ func (r *render) eval(f *formula, doc map[string]any, instance map[string]any) (
 	if keyMap == nil {
 		keyMap = map[string]any{}
 	}
-	platform, _ := keyMap["platform"].(map[string]any)
 	common, _ := doc["common"].(map[string]any)
 	vars := map[string]any{
 		"values":     orEmpty(sub),
-		"platform":   orEmpty(platform),
+		"limits":     orEmpty(r.limits[f.key]),
 		"common":     orEmpty(common),
 		"me":         r.me(f.key),
 		"peers":      r.peerVars(f.key),
@@ -527,39 +551,44 @@ func orEmpty(m any) any {
 	return m
 }
 
-func (r *render) replicas(key string) int {
-	keyDoc, _ := get(r.doc, "/"+key)
-	km, _ := keyDoc.(map[string]any)
-	if scale, _ := km["scale"].(string); scale != "replicas" {
-		return 0
-	}
-	if p, ok := km["platform"].(map[string]any); ok {
-		switch n := p["replicas"].(type) {
-		case float64:
-			return int(n)
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case json.Number:
-			if i, err := n.Int64(); err == nil {
-				return int(i)
+// resolve asks the target what each selected key's platform means: how many
+// instances (scale: replicas only — single is one, addressed as the key) and
+// the limits formulas may read.
+func (r *render) resolve() error {
+	r.instances, r.limits = map[string]int{}, map[string]map[string]any{}
+	for _, key := range r.keys {
+		keyDoc, _ := get(r.doc, "/"+key)
+		km, _ := keyDoc.(map[string]any)
+		platform, _ := km["platform"].(map[string]any)
+		if scale, _ := km["scale"].(string); scale == "replicas" {
+			n, err := r.ctx.Target.Replicas(key, platform)
+			if err != nil {
+				return fmt.Errorf("%s: %w", key, err)
 			}
+			r.instances[key] = n
 		}
+		l, err := r.ctx.Target.Limits(key, platform)
+		if err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+		r.limits[key] = l
 	}
-	return 1
+	return nil
 }
+
+// replicas is 0 for a key that does not scale, n ≥ 1 for scale: replicas.
+func (r *render) replicas(key string) int { return r.instances[key] }
 
 // me describes a key by names only: service, instances, replicas, ports.
 func (r *render) me(key string) map[string]any {
-	svc := r.ctx.Names.Service(key)
+	svc := r.ctx.Target.Service(key)
 	n := r.replicas(key)
 	var instances []any
 	if n == 0 {
-		instances = []any{r.ctx.Names.Address(key, -1)}
+		instances = []any{r.ctx.Target.Address(key, -1)}
 	} else {
 		for i := range n {
-			instances = append(instances, r.ctx.Names.Address(key, i))
+			instances = append(instances, r.ctx.Target.Address(key, i))
 		}
 	}
 	ports := map[string]any{}
@@ -582,10 +611,10 @@ func (r *render) peerVars(key string) map[string]any {
 
 func (r *render) horchestra(key string, instance map[string]any) map[string]any {
 	h := map[string]any{
-		"namespace":    r.ctx.Names.Namespace(),
+		"namespace":    r.ctx.Target.Namespace(),
 		"installation": r.ctx.Installation,
 		"component":    key,
-		"service":      r.ctx.Names.Service(key),
+		"service":      r.ctx.Target.Service(key),
 		"replicas":     max(r.replicas(key), 1),
 	}
 	maps.Copy(h, instance)
@@ -594,7 +623,7 @@ func (r *render) horchestra(key string, instance map[string]any) map[string]any 
 
 // instanceVars are the per-replica fields of the horchestra context.
 func (r *render) instanceVars(key string, i int) map[string]any {
-	return map[string]any{"instance": r.ctx.Names.Instance(key, i), "index": i, "ordinal": i + 1}
+	return map[string]any{"instance": r.ctx.Target.Instance(key, i), "index": i, "ordinal": i + 1}
 }
 
 // instanceDoc re-evaluates the per-replica formulas of a key for replica i,
@@ -628,7 +657,7 @@ func (r *render) validate() error {
 	// Under its own URL, not pack://<name>: a lone component's composition is
 	// named after the component, and the ref pack://<name># must reach the
 	// component, not the composition wrapped around it.
-	compiled, err := r.b.Composition.Compile("horchestra://composition/" + r.b.Name)
+	compiled, err := r.b.Composition.CompileWith("horchestra://composition/"+r.b.Name, r.ctx.Target.PlatformSchema())
 	if err != nil {
 		return err
 	}
@@ -638,30 +667,13 @@ func (r *render) validate() error {
 	}
 	for _, key := range r.keys {
 		ann, _ := r.b.Composition.Root.Properties[key].KeyAnnotation()
+		if len(ann.Minimum) == 0 {
+			continue
+		}
 		keyDoc, _ := get(r.doc, "/"+key)
 		km, _ := keyDoc.(map[string]any)
-		req := map[string]string{}
-		if p, ok := km["platform"].(map[string]any); ok {
-			if res, ok := p["resources"].(map[string]any); ok {
-				if rq, ok := res["requests"].(map[string]any); ok {
-					for k, v := range rq {
-						req[k], _ = v.(string)
-					}
-				}
-			}
-		}
-		for res, min := range ann.Minimum {
-			have, ok := req[res]
-			if !ok {
-				problems = append(problems, fmt.Sprintf("/%s/platform/resources/requests/%s: the composition requires at least %s", key, res, min))
-				continue
-			}
-			hv, err1 := compute.Quantity(have)
-			mv, err2 := compute.Quantity(min)
-			if err1 == nil && err2 == nil && hv < mv {
-				problems = append(problems, fmt.Sprintf("/%s/platform/resources/requests/%s: %s is below the composition's minimum %s", key, res, have, min))
-			}
-		}
+		platform, _ := km["platform"].(map[string]any)
+		problems = append(problems, r.ctx.Target.ValidatePlatform(key, platform, ann.Minimum)...)
 	}
 	if len(problems) > 0 {
 		sort.Strings(problems)

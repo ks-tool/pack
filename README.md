@@ -40,7 +40,7 @@ Author a component in Go (`examples/postgres/postgres.go`):
 type Postgres struct {
 Ports     Ports               `json:"ports"`
 Scale     string              `json:"scale" pack:"const"`
-Platform  packschema.Platform `json:"platform" pack:"ref=horchestra://platform/v1#/$defs/component,default"`
+Platform  packschema.Platform `json:"platform" pack:"ref=urn:pack:platform,default"`
 Claims    Claims              `json:"claims"`
 Database  string              `json:"database" jsonschema:"required"`
 Superuser Superuser           `json:"superuser"`
@@ -55,7 +55,7 @@ Password packschema.Secret `json:"password" jsonschema:"required" pack:"env=POST
 func Defaults() Postgres { return Postgres{Ports: Ports{PG: 5432}, Scale: "single", /* … */} }
 func (Postgres) PackRoot() packschema.Root { return packschema.Root{Readiness: &packschema.Readiness{TCP: "pg"}} }
 func (Postgres) PackCompute() map[string]string {
-return map[string]string{"/conf/shared_buffers": "string(quantity(platform.resources.limits.memory) / 1000 / 1048576 / 4) + 'MB'"}
+return map[string]string{"/conf/shared_buffers": "string(limits.memory / 1048576 / 4) + 'MB'"}
 }
 ```
 
@@ -92,7 +92,7 @@ templates and the image configs itself and never an image layer — see
 |----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `pack check [--plain-http] <dir\|ref>`                                                                                                                                                 | Author checks on a component directory (`schema.json`, `templates/`, `image.json`), or on a composition — a directory or a pack in a registry (`cr://host/repo:tag`) — then every member is checked and the composition's own rules (role binding, ordering, membership) on top. Exit 1 with one line per problem.                             |
 | `pack template --pack <dir\|ref> --values <file> --name <installation> [--target horchestra] [--set <k>=<v> …] [--namespace <ns>] [-o <dir>] [--plain-http] [--secretProvider generate\|env\|file:<dir> --secret <pointer> …]` | Render for a target. `--pack` is a composition or a lone component, as a directory or a registry reference. `--target` picks the system (today only `horchestra`, the default), `--set` passes its settings — horchestra takes `namespace`, `--namespace` is the shorthand; a setting the target does not know is refused. Without `-o`, the target's objects as a YAML stream on stdout. `--secret` names password leaves the tool provisions itself (an explicit allowlist); the provider says where their values come from — see [docs/values.md](docs/values.md#credentials-the-tool-creates). |
-| `pack schema vocabulary\|platform`                                                                                                                                                     | Print the two schemas the tool ships: the `x-pack-*` vocabulary (`horchestra://pack/v1`) and the platform half (`horchestra://platform/v1`).                                                                                                                                                                                                   |
+| `pack schema vocabulary\|platform [--target <t>]` | Print the `x-pack-*` vocabulary the tool ships (`horchestra://pack/v1`), or the schema a target gives the platform half (the slot `urn:pack:platform`). |
 | `pack plan [--from <dir\|ref>] --to <dir\|ref> --values <file> [--savepoints auto\|none\|k1,k2] [--no-rollback k1,k2\|all] [--strict] [-o plan.yaml] [--plain-http]`                   | The saga: a first installation (no `--from`) or the upgrade between two versions — what changes, which hooks run, the rollback units and how far a failure rolls back ([docs/saga.md](docs/saga.md)). Prints the plan; `-o` also writes it as YAML.                                                                                            |
 
 ## Repository layout
@@ -107,7 +107,7 @@ pack/
     check/               author checks
     compute/             the CEL environment of x-pack-compute
     semver/              versions and constraints
-    platform/            the two schemas the tool ships: horchestra://platform/v1, horchestra://pack/v1
+    platform/            the vocabulary the tool ships (horchestra://pack/v1) and the platform slot urn:pack:platform, filled by a target
     python/, java/       the same SDK in Python and Java — sdk/README.md
   examples/            jdk, zookeeper, kafka, postgres, adh — go generate writes their schema.json
   emit/                file emitters

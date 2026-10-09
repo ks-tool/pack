@@ -49,7 +49,7 @@ func runPlan(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx := render.Context{Installation: *name, Names: inst.Names()}
+	ctx := render.Context{Installation: *name, Target: inst}
 	toB, err := openPack(*to, *plainHTTP)
 	if err != nil {
 		return fmt.Errorf("--to: %w", err)

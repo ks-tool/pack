@@ -47,6 +47,7 @@ func usage() {
             [--no-rollback k1,k2|all] [--strict] [-o plan.yaml]
                                        the saga: a first installation, or the upgrade between two versions
   registries: PACK_REGISTRY_USER / PACK_REGISTRY_PASSWORD in the environment for credentials
-  pack schema vocabulary|platform      print the schemas the tool ships: the x-pack-* vocabulary, the platform half
+  pack schema vocabulary|platform [--target t]
+                                       print the x-pack-* vocabulary, or the schema a target gives the platform half
 `)
 }

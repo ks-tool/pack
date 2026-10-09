@@ -21,12 +21,19 @@ func (t Target) Configure(installation string, settings target.Settings) (target
 	if err := s.Rest(t.Name()); err != nil {
 		return nil, err
 	}
-	return ctx, nil
+	return bound{names{ctx.Installation, ctx.Namespace}, ctx}, nil
+}
+
+// bound is horchestra bound to one installation, as a target.Installation.
+type bound struct {
+	names
+	ctx Context
 }
 
 // Convert writes the set, the Secrets — provisioned credentials first, then
 // the config Secrets — and the report.
-func (c Context) Convert(rel *render.Release, credentials []render.Credential) (*target.Output, error) {
+func (i bound) Convert(rel *render.Release, credentials []render.Credential) (*target.Output, error) {
+	c := i.ctx
 	out, err := Convert(rel, c)
 	if err != nil {
 		return nil, err
@@ -52,4 +59,4 @@ func (c Context) Convert(rel *render.Release, credentials []render.Credential) (
 }
 
 var _ target.Target = Target{}
-var _ target.Installation = Context{}
+var _ target.Installation = bound{}

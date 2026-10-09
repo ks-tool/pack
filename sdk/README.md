@@ -18,7 +18,7 @@ the same description — the tests prove it on `examples/postgres`.
 
 | piece | Go | Python | Java |
 |---|---|---|---|
-| the scale fact and the platform half (horchestra's schema, `$ref` + default) | embed `sdk.Workload`; `Workload: sdk.Single("500m", "512Mi")` or `sdk.Replicated(3, "1", "2Gi")`, `.Limits("1Gi")`, `.Placement(…)` | `scale: str = const(Scale.SINGLE)`, `platform: Platform = default_factory(Platform.sized("500m", "512Mi"))` | `@Pack(kind=CONST) String scale = Scale.SINGLE`, `Platform platform = Platform.sized("500m", "512Mi")` |
+| the scale fact and the platform half (the target's schema — the slot `urn:pack:platform`, `$ref` + default) | embed `sdk.Workload`; `Workload: sdk.Single("500m", "512Mi")` or `sdk.Replicated(3, "1", "2Gi")`, `.Limits("1Gi")`, `.Placement(…)` | `scale: str = const(Scale.SINGLE)`, `platform: Platform = default_factory(Platform.sized("500m", "512Mi"))` | `@Pack(kind=CONST) String scale = Scale.SINGLE`, `Platform platform = Platform.sized("500m", "512Mi")` |
 | a volume | `sdk.Claim` / `sdk.ClaimAt(path, size)` | `Claim.at(path, size)` | `Claim.at(path, size)` |
 | a credential | `sdk.Secret` (+ `pack:"env=…"` or under a file) | `secret(env=…)` | `Secret` field (+ `@Pack(env=…)`) |
 | a fact / a setting / the operator's | `pack:"const"` / `pack:"default"` / no tag | `const(v)` / `default(v)` / `operator()` | `@Pack(kind=CONST)` / `DEFAULT` / none |

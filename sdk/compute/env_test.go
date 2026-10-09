@@ -10,12 +10,12 @@ func TestReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := Compile(env, `has(platform.resources.limits.memory) ? '-Xmx' + string(values.jdk.heapMB) + peers.zk.instances.map(h, h + ':' + string(peers.zk.ports.client)).join(',') : common.realm`)
+	a, err := Compile(env, `has(limits.memory) ? '-Xmx' + string(values.jdk.heapMB) + peers.zk.instances.map(h, h + ':' + string(peers.zk.ports.client)).join(',') : common.realm`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := Reads(a)
-	want := []string{"platform.resources.limits.memory", "values.jdk.heapMB", "peers.zk.instances", "peers.zk.ports.client", "common.realm"}
+	want := []string{"limits.memory", "values.jdk.heapMB", "peers.zk.instances", "peers.zk.ports.client", "common.realm"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("reads: got %v want %v", got, want)
 	}
@@ -40,8 +40,8 @@ func TestEvalAndFunctions(t *testing.T) {
 	if err != nil || v.(int64) != 24576 {
 		t.Fatalf("quantity: %v %v", v, err)
 	}
-	n, _ := Compile(env, `has(platform.x) ? 1 : null`)
-	v, err = Eval(env, n, map[string]any{"platform": map[string]any{}})
+	n, _ := Compile(env, `has(limits.x) ? 1 : null`)
+	v, err = Eval(env, n, map[string]any{"limits": map[string]any{}})
 	if err != nil || v != nil {
 		t.Fatalf("null: %v %v", v, err)
 	}
@@ -64,7 +64,7 @@ func TestResultType(t *testing.T) {
 	cases := map[string]string{
 		`string(horchestra.ordinal)`: "string",
 		`peers.zk.instances.map(h, h + ':' + string(peers.zk.ports.client)).join(',')`: "string",
-		`quantity(platform.resources.limits.memory) / 2`:                               "integer",
+		`limits.memory / 2`:         "integer",
 		`values.a + 1`:              "integer",
 		`values.replicas * 2 > 3`:   "boolean",
 		`[1, 2]`:                    "array",
@@ -73,9 +73,9 @@ func TestResultType(t *testing.T) {
 		`null`:                      "",
 		`values.x > 1 ? 3 : null`:   "integer",
 		`values.x > 1 ? null : 'a'`: "string",
-		`has(platform.resources.limits.memory) ? string(quantity(platform.resources.limits.memory) / 4) + 'MB' : null`: "string",
-		`values.a ? (values.b ? 1 : null) : null`: "integer",
-		`[values.a ? 1 : null]`:                   "array",
+		`has(limits.memory) ? string(limits.memory / 4) + 'MB' : null`: "string",
+		`values.a ? (values.b ? 1 : null) : null`:                      "integer",
+		`[values.a ? 1 : null]`:                                        "array",
 	}
 	for expr, want := range cases {
 		got, err := ResultType(env, expr)

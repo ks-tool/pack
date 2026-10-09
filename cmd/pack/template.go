@@ -66,7 +66,7 @@ func runTemplate(args []string) error {
 	if err != nil {
 		return err
 	}
-	rel, err := render.Render(b, v, render.Context{Installation: *name, Names: inst.Names()})
+	rel, err := render.Render(b, v, render.Context{Installation: *name, Target: inst})
 	if err != nil {
 		return err
 	}

@@ -3,8 +3,6 @@ package schema
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/ks-tool/pack/sdk/platform"
 )
 
 const kafka = `{
@@ -14,7 +12,7 @@ const kafka = `{
   "properties": {
     "ports": {"type": "object", "properties": {"broker": {"type": "integer", "const": 9092}, "internal": {"type": "integer", "const": 9093}}},
     "scale": {"type": "string", "const": "replicas"},
-    "platform": {"$ref": "horchestra://platform/v1#/$defs/component", "default": {"replicas": 3, "resources": {"requests": {"cpu": "1", "memory": "2Gi"}}}},
+    "platform": {"$ref": "urn:pack:platform", "default": {"replicas": 3, "resources": {"requests": {"cpu": "1", "memory": "2Gi"}}}},
     "jdk": {"$ref": "pack://jdk#", "x-pack-mount": "/opt/java"},
     "conf": {
       "type": "object", "additionalProperties": false,
@@ -39,7 +37,7 @@ const kafka = `{
 
 const jdk = `{"type": "object", "additionalProperties": false,
   "properties": {"gc": {"type": "string", "enum": ["G1", "ZGC"], "default": "G1"},
-                 "heapMB": {"type": "integer", "minimum": 128, "default": 1024, "x-pack-compute": "has(platform.resources.limits.memory) ? quantity(platform.resources.limits.memory) / 1000 / 1048576 * 3 / 4 : null"}}}`
+                 "heapMB": {"type": "integer", "minimum": 128, "default": 1024, "x-pack-compute": "has(limits.memory) ? limits.memory / 1048576 * 3 / 4 : null"}}}`
 
 func parseKafka(t *testing.T) *Schema {
 	t.Helper()
@@ -154,5 +152,4 @@ func TestCompile_PasswordTakesOnlyARef(t *testing.T) {
 		t.Fatalf("expected refusals for plaintext password, wrong const and bad enum, got %v", v)
 	}
 	t.Log(v)
-	_ = platform.PlatformV1
 }

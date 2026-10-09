@@ -20,16 +20,23 @@ type Compiled struct {
 	Validator *jsonschema.Schema
 }
 
-// Compile builds the validator. Foreign references are registered as resources
-// under their own URLs, so the document itself is compiled unchanged apart
-// from the password swap.
-func (s *Schema) Compile(id string) (*Compiled, error) {
+// Compile builds the validator with the platform slot open: any object.
+func (s *Schema) Compile(id string) (*Compiled, error) { return s.CompileWith(id, nil) }
+
+// CompileWith builds the validator, the platform slot filled by a target's
+// schema (its $id is platform.SlotID); nil leaves the slot open. Foreign
+// references are registered as resources under their own URLs, so the
+// document itself is compiled unchanged apart from the password swap.
+func (s *Schema) CompileWith(id string, platformSchema []byte) (*Compiled, error) {
 	c := jsonschema.NewCompiler()
 	c.DefaultDraft(jsonschema.Draft2020)
 	if err := addResource(c, platform.PackID, platform.PackV1); err != nil {
 		return nil, err
 	}
-	if err := addResource(c, platform.PlatformID, platform.PlatformV1); err != nil {
+	if platformSchema == nil {
+		platformSchema = platform.Slot
+	}
+	if err := addResource(c, platform.SlotID, platformSchema); err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{id: true} // the document itself is added last, under id
@@ -52,7 +59,7 @@ func (s *Schema) Compile(id string) (*Compiled, error) {
 
 func (s *Schema) addForeign(c *jsonschema.Compiler, seen map[string]bool) error {
 	for url, f := range s.Foreign {
-		if url == platform.PlatformID || url == platform.PackID || seen[url] {
+		if url == platform.SlotID || url == platform.PackID || seen[url] {
 			continue
 		}
 		seen[url] = true

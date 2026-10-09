@@ -86,6 +86,6 @@ func (Postgres) PackRoot() packschema.Root {
 
 func (Postgres) PackCompute() map[string]string {
 	return map[string]string{
-		"/conf/shared_buffers": "has(platform.resources.limits.memory) ? string(quantity(platform.resources.limits.memory) / 1000 / 1048576 / 4) + 'MB' : '128MB'",
+		"/conf/shared_buffers": "has(limits.memory) ? string(limits.memory / 1048576 / 4) + 'MB' : '128MB'",
 	}
 }

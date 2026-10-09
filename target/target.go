@@ -24,11 +24,10 @@ type Target interface {
 	Configure(installation string, settings Settings) (Installation, error)
 }
 
-// Installation is a target bound to one installation.
+// Installation is a target bound to one installation: what the render asks
+// of it — names, the platform's schema and meaning — and the conversion.
 type Installation interface {
-	// Names is how the target names and reaches what it runs — what the
-	// render needs before formulas can address a neighbour.
-	Names() render.Names
+	render.Target
 	// Convert turns a release, and the credentials provisioned for it, into
 	// the target's objects.
 	Convert(rel *render.Release, credentials []render.Credential) (*Output, error)

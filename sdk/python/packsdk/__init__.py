@@ -3,7 +3,7 @@
 The component is a dataclass whose DEFAULT VALUES are the defaults document;
 every field says what it is with one of const / default / operator / file /
 ref, and where it goes with env= / arg=. The pieces every component has are
-ready: Platform (horchestra's platform half), Scale, Claim, Secret.
+ready: Platform (the platform half — its schema is the target's), Scale, Claim, Secret.
 
     @dataclass
     class Conf:

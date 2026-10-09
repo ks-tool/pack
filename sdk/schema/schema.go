@@ -48,7 +48,7 @@ type Schema struct {
 	Defs map[string]*Node
 	Raw  map[string]any
 	// Foreign schemas by resource URL — the part of a $ref before '#':
-	// horchestra://platform/v1, horchestra://pack/v1, pack://<name>.
+	// urn:pack:platform (the slot), horchestra://pack/v1, pack://<name>.
 	Foreign map[string]*Schema
 }
 

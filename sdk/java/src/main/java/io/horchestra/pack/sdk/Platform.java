@@ -4,17 +4,17 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * The platform half of a component's values — replicas, resources,
- * placement — under horchestra's own schema. A field of this type reflects
- * to {@code {"$ref": "horchestra://platform/v1#/$defs/component", "default": …}}
- * with the field's value, pruned of zeros, as the default.
+ * The platform half of a component's values — replicas, resources — whose
+ * schema is the target's (the platform slot). A field of this type reflects
+ * to {@code {"$ref": "urn:pack:platform", "default": …}} with the field's
+ * value, pruned of zeros, as the default. Placement is not here: it is the
+ * operator's, in the target's words.
  */
 public final class Platform {
-    public static final String REF = "horchestra://platform/v1#/$defs/component";
+    public static final String REF = "urn:pack:platform";
 
     public int replicas;
     public Resources resources = new Resources();
-    public Map<String, Object> placement = new LinkedHashMap<>();
 
     public static final class Resources {
         public Map<String, String> requests = new LinkedHashMap<>();

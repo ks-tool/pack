@@ -18,7 +18,7 @@ func (JDK) PackRoot() packschema.Root { return packschema.Root{} }
 
 func (JDK) PackCompute() map[string]string {
 	return map[string]string{
-		"/heapMB":   "has(platform.resources.limits.memory) ? quantity(platform.resources.limits.memory) / 1000 / 1048576 * 3 / 4 : 1024",
+		"/heapMB":   "has(limits.memory) ? limits.memory / 1048576 * 3 / 4 : 1024",
 		"/heapOpts": "'-Xmx' + string(values.heapMB) + 'm -Xms' + string(values.heapMB) + 'm -XX:+Use' + values.gc + 'GC'",
 	}
 }

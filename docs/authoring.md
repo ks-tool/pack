@@ -91,23 +91,27 @@ Two properties have meaning to the tool:
 ## 3. The platform half
 
 ```go
-sdk.Workload    // embeds: Scale string `pack:"const"`, Platform sdk.Platform `pack:"ref=horchestra://platform/v1#/$defs/component,default"`
+sdk.Workload    // embeds: Scale string `pack:"const"`, Platform sdk.Platform `pack:"ref=urn:pack:platform,default"`
 ```
 
-`platform` is the one key whose schema the author does not write: replicas,
-resources, placement, additive env and volumes, labels — one schema for
-every component, shipped with the tool (`sdk/platform/platform_v1.json`).
-`sdk.Workload` carries it together with the `scale` fact; the `default`
-tag turns your default into the key's default:
+`platform` is the one key whose schema neither the author nor the pack
+writes: it refers to the **platform slot** (`urn:pack:platform`), which the
+**target** a pack is rendered for fills — horchestra's says replicas,
+resources, placement, additive env, labels (`pack schema platform --target
+horchestra`); another target has its own words. Without a target (`pack
+check`) the slot takes any object. `sdk.Workload` carries it together with
+the `scale` fact; the `default` tag turns your default into the key's
+default — replicas and resources, never placement, which is the operator's:
 
 ```go
 Workload: sdk.Replicated(3, "1", "2Gi"),      // or sdk.Single("500m", "512Mi").Limits("1Gi")
 ```
 
-Because `platform` sits at a fixed path under every key, the operator's
-sizing is found without knowing the component, and formulas can read it
-(`platform.resources.limits.memory`) but never write it: nothing a formula
-computes can change what the quota sees.
+Formulas do not read `platform` — its words are the target's. What a
+formula may know of it, the target tells as **`limits`**: `limits.memory` in
+bytes, `limits.cpu` in millicores, absent where there is no limit
+(`has(limits.memory) ? limits.memory / 1048576 * 3 / 4 : 1024`). Nothing a
+formula computes can change what the target sizes.
 
 A **library** has no `platform` (and no `ports`, no `scale`): it never runs
 on its own.
@@ -297,7 +301,7 @@ func (Kafka) PackRoot() packschema.Root {
   agree (a reference without `requires`, or vice versa, is refused).
 - the library's values are a subtree of the consumer's
   (`kafka.jdk.heapMB`), and the library's **formulas run in the consumer's
-  environment**: `platform` is Kafka's, `values` is the `jdk` subtree. So
+  environment**: `limits` are Kafka's, `values` is the `jdk` subtree. So
   Kafka and ZooKeeper sharing one JDK get two `heapMB`s, each from its own
   memory limit.
 - a library's files render into the consumer's Secrets by their own paths.
@@ -351,7 +355,7 @@ environment ([values.md](values.md#the-cel-environment) has the full table):
 | variable | what it is |
 |---|---|
 | `values` | this component's subtree after defaults and the formulas already settled; for a library's formula, the library's subtree |
-| `platform` | `values.platform` — read-only |
+| `limits` | the target's facts about the key's limits: `memory` (bytes), `cpu` (millicores) |
 | `common` | the composition's `common` |
 | `me` | `service`, `instances[]`, `replicas`, `ports{}` — names, never addresses |
 | `peers.<role>` | the same about a bound neighbour |

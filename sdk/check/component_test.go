@@ -54,7 +54,7 @@ func TestFormulaTypes(t *testing.T) {
 	ps := run(t, with("[]", `{
 	  "n":  {"type": "integer", "x-pack-compute": "string(values.m)"},
 	  "s":  {"type": "string",  "x-pack-compute": "values.m + 1"},
-	  "f":  {"type": "number",  "x-pack-compute": "quantity(platform.resources.limits.memory) / 1000"},
+	  "f":  {"type": "number",  "x-pack-compute": "limits.memory / 1000"},
 	  "d":  {"type": "string",  "x-pack-compute": "values.m"},
 	  "q":  {"type": "string",  "x-pack-compute": "has(values.m) ? string(values.m) : null"},
 	  "b":  {"type": "boolean", "x-pack-compute": "has(values.m) ? null : 1"},

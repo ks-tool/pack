@@ -11,24 +11,61 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/ks-tool/pack/bundle"
+	"github.com/ks-tool/pack/sdk/compute"
 )
 
-// testNames are horchestra's names, spelled out here: render cannot import
-// a target, and the properties below do not depend on which one it is.
-type testNames struct{ installation, namespace string }
+// testTarget is horchestra, spelled out here: render cannot import a
+// target, and the properties below do not depend on which one it is.
+type testTarget struct{ installation, namespace string }
 
-func (n testNames) Service(key string) string         { return n.installation + "-" + key }
-func (n testNames) Instance(key string, i int) string { return fmt.Sprintf("%s-%d", n.Service(key), i) }
-func (n testNames) Namespace() string                 { return n.namespace }
-func (n testNames) Address(key string, i int) string {
+func (n testTarget) Service(key string) string { return n.installation + "-" + key }
+func (n testTarget) Instance(key string, i int) string {
+	return fmt.Sprintf("%s-%d", n.Service(key), i)
+}
+func (n testTarget) Namespace() string { return n.namespace }
+func (n testTarget) Address(key string, i int) string {
 	if i < 0 {
 		return n.Service(key) + "." + n.namespace
 	}
 	return fmt.Sprintf("%s.%s.%s", n.Instance(key, i), n.Service(key), n.namespace)
 }
+func (testTarget) PlatformSchema() []byte { return nil }
+func (testTarget) Replicas(_ string, p map[string]any) (int, error) {
+	if n, ok := p["replicas"].(float64); ok {
+		return int(n), nil
+	}
+	return 1, nil
+}
+func (testTarget) Limits(_ string, p map[string]any) (map[string]any, error) {
+	res, _ := p["resources"].(map[string]any)
+	lim, _ := res["limits"].(map[string]any)
+	out := map[string]any{}
+	if m, ok := lim["memory"].(string); ok {
+		q, err := compute.Quantity(m)
+		if err != nil {
+			return nil, err
+		}
+		out["memory"] = q / 1000
+	}
+	return out, nil
+}
+func (testTarget) ValidatePlatform(key string, p map[string]any, minimum map[string]string) []string {
+	res, _ := p["resources"].(map[string]any)
+	req, _ := res["requests"].(map[string]any)
+	var out []string
+	for name, min := range minimum {
+		have, _ := req[name].(string)
+		hv, _ := compute.Quantity(have)
+		mv, _ := compute.Quantity(min)
+		if hv < mv {
+			out = append(out, fmt.Sprintf("/%s/platform/resources/requests/%s: %s is below the composition's minimum %s", key, name, have, min))
+		}
+	}
+	return out
+}
 
 func ctxOf(installation, namespace string) Context {
-	return Context{Installation: installation, Names: testNames{installation, namespace}}
+	return Context{Installation: installation, Target: testTarget{installation, namespace}}
 }
 
 // The adh composition with its fixture values: the order, the peers and the

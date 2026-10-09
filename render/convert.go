@@ -115,26 +115,9 @@ func (r *render) unit(key string) (*Unit, error) {
 		return nil, err
 	}
 
-	// env: annotated leaves, then the platform's additive ones
-	platform, _ := km["platform"].(map[string]any)
-	u.Platform = platform
-	if pe, ok := platform["env"].([]any); ok {
-		for _, e := range pe {
-			em, _ := e.(map[string]any)
-			name, _ := em["name"].(string)
-			for _, existing := range envs {
-				if existing.Name == name {
-					return nil, fmt.Errorf("platform.env %s: the component declares that variable", name)
-				}
-			}
-			if sr, ok := em["secretRef"].(map[string]any); ok {
-				envs = append(envs, EnvVar{Name: name, Secret: &SecretRef{Name: str(sr["name"]), Key: str(sr["key"])}})
-			} else {
-				envs = append(envs, EnvVar{Name: name, Value: str(em["value"])})
-			}
-		}
-	}
+	// env: the annotated leaves; the platform is the target's, passed as it is
 	u.Env = envs
+	u.Platform, _ = km["platform"].(map[string]any)
 
 	// ports
 	if pm, ok := km["ports"].(map[string]any); ok {
@@ -144,21 +127,7 @@ func (r *render) unit(key string) (*Unit, error) {
 		}
 	}
 
-	// resources, spread
-	if res, ok := platform["resources"].(map[string]any); ok {
-		u.Resources = &Resources{Requests: strMap(res["requests"]), Limits: strMap(res["limits"])}
-	}
-	// resources, spread
-	if res, ok := platform["resources"].(map[string]any); ok {
-		u.Resources = &Resources{Requests: strMap(res["requests"]), Limits: strMap(res["limits"])}
-	}
 	u.Spread = ann.Spread
-	if pp, ok := platform["placement"].(map[string]any); ok && str(pp["spread"]) == "host" {
-		u.Spread = true
-	}
-	if pp, ok := platform["placement"].(map[string]any); ok && str(pp["spread"]) == "host" {
-		u.Spread = true
-	}
 
 	// readiness
 	if rd := comp.Root.Readiness; rd != nil {
@@ -492,17 +461,5 @@ func sortedKeys(m map[string]any) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
-	return out
-}
-
-func strMap(v any) map[string]string {
-	m, ok := v.(map[string]any)
-	if !ok || len(m) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for k, e := range m {
-		out[k] = str(e)
-	}
 	return out
 }

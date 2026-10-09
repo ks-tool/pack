@@ -18,8 +18,11 @@ import (
 	"cel.dev/cel-go/ext"
 )
 
-// Vars are the names a formula may read. All are dynamic maps.
-var Vars = []string{"values", "platform", "common", "me", "peers", "horchestra"}
+// Vars are the names a formula may read. All are dynamic maps. `limits` are
+// facts the target gives about a key's limits, normalised — memory in bytes,
+// cpu in millicores — so that a formula never reads the target's own words
+// (the platform subtree is the target's and is not a variable).
+var Vars = []string{"values", "limits", "common", "me", "peers", "horchestra"}
 
 const CostLimit = 1_000_000
 
