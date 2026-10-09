@@ -69,10 +69,7 @@ func TestProvider_ADH(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	if _, err := p.Configure("prod", target.Settings{"namespce": "data"}); err == nil || !strings.Contains(err.Error(), "unknown setting namespce") {
-		t.Errorf("the provider's refusal must reach pack: %v", err)
-	}
-	inst, err := p.Configure("prod", target.Settings{"namespace": "data"})
+	inst, err := p.Configure("prod", target.Settings{"namespace": "data", "registry_user": "ci"})
 	if err != nil {
 		t.Fatal(err)
 	}

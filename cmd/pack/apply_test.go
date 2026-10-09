@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -205,5 +207,56 @@ func TestRollback(t *testing.T) {
 	}
 	if out, err := pack(nil, "rollback"); err == nil || !strings.Contains(out, "nothing is installed") {
 		t.Errorf("after the undo nothing is installed: %v\n%s", err, out)
+	}
+}
+
+// One description of Postgres, two environments — a file each, each with
+// its own Vault KV: every provider gets its environment's whole set, and
+// the Vault token is in none of them.
+func TestEnvironments(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds pack and a provider")
+	}
+	bin := buildWithFake(t)
+	vault := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Vault-Token") != "ci-token" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		env := strings.TrimPrefix(r.URL.Path, "/v1/secret/data/pack/")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"data": map[string]any{"db_admin": "admin-" + env}, "metadata": map[string]any{"version": 1}}})
+	}))
+	defer vault.Close()
+
+	pg := filepath.Join("..", "..", "examples", "postgres")
+	values := filepath.Join(t.TempDir(), "postgres.yaml")
+	_ = os.WriteFile(values, []byte("values:\n  postgres:\n    database: app\n    superuser: {password: {secretRef: {name: pg, key: password}}}\n"), 0o600)
+	envs := t.TempDir()
+	for _, env := range []string{"staging", "prod"} {
+		state := filepath.Join(envs, env)
+		_ = os.MkdirAll(state, 0o700)
+		file := filepath.Join(envs, env+".yaml")
+		_ = os.WriteFile(file, []byte("target: fake\nnamespace: "+env+"\nfake_dir: "+state+"\nvault:\n  addr: "+vault.URL+"\n  paths: [secret/data/pack/"+env+"]\n"), 0o600)
+		cmd := exec.Command(filepath.Join(bin, "pack"), "apply", "--config", file, "--pack", pg, "--values", values, "--name", "pg")
+		cmd.Env = append(os.Environ(), "VAULT_TOKEN=ci-token", "PACK_PROVIDER_PATH=", "PACK_FAKE_DIR=")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", env, err, out)
+		}
+		raw, err := os.ReadFile(filepath.Join(state, "settings.json"))
+		if err != nil {
+			t.Fatalf("%s: the provider wrote no settings: %v", env, err)
+		}
+		var got map[string]string
+		_ = json.Unmarshal(raw, &got)
+		if got["namespace"] != env || got["db_admin"] != "admin-"+env || got["target"] != "fake" {
+			t.Errorf("%s: the provider got %v", env, got)
+		}
+		if strings.Contains(string(raw), "ci-token") {
+			t.Errorf("%s: the Vault token reached the provider", env)
+		}
+		if _, err := os.Stat(filepath.Join(state, "record.json")); err != nil {
+			t.Errorf("%s: installed nowhere: %v", env, err)
+		}
 	}
 }

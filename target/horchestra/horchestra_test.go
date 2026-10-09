@@ -75,10 +75,8 @@ func TestRenderADH_Golden(t *testing.T) {
 // As a target.Target: the namespace setting, a typo refused, and the files
 // the CLI writes — the same bytes as the golden set.
 func TestTarget(t *testing.T) {
-	if _, err := (Target{}).Configure("prod", target.Settings{"namespce": "data"}); err == nil || !strings.Contains(err.Error(), "unknown setting namespce") {
-		t.Errorf("a misspelt setting must be refused: %v", err)
-	}
-	inst, err := Target{}.Configure("prod", target.Settings{"namespace": "data"})
+	// the environment's whole set: horchestra takes namespace, the rest is not its own
+	inst, err := Target{}.Configure("prod", target.Settings{"namespace": "data", "kubeconfig": "x", "target": "horchestra"})
 	if err != nil {
 		t.Fatal(err)
 	}

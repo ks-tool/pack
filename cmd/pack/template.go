@@ -99,6 +99,6 @@ func runTemplate(args []string) error {
 			return err
 		}
 	}
-	fmt.Printf("wrote %s: %d file(s) for %s\n", *outDir, len(out.Files), *tf.name)
+	fmt.Printf("wrote %s: %d file(s) for %s\n", *outDir, len(out.Files), tf.target())
 	return nil
 }

@@ -92,6 +92,19 @@ runs it with podman or docker (`$PACK_CONTAINER_RUNTIME`), the provider listenin
 `PACK_PROVIDER_TOKEN` (demand it as the `pack-provider-token` metadata of every call), and exits on EOF on stdin;
 in Go, `provider.Serve` does all of it.
 
+**Environments.** A pack is described once — its values — and installed into as many environments as there are
+files: `--config envs/prod.yaml` says where (`target`, `provider`) and what the target needs (a namespace, an
+inventory…), and names the Vault KV of that environment (`vault.addr`, `vault.paths`; the token from `$VAULT_TOKEN`
+only). Vault's keys go over the file's, `--set` over both; the result, flattened by the
+[app-config](https://github.com/ks-tool/app-config) rule (`{vault: {addr: …}}` is `vault_addr`), is the set the
+provider gets, whole, in `Configure` — never in its environment or its arguments, where a container would show the
+secrets. The same command with the same file does the same on a console and in CI:
+
+```sh
+VAULT_TOKEN=… pack apply --config envs/staging.yaml --pack cr://registry/packs/pg:16.3 --values pg.yaml --name pg
+VAULT_TOKEN=… pack apply --config envs/prod.yaml    --pack cr://registry/packs/pg:16.3 --values pg.yaml --name pg
+```
+
 From a registry instead of a checkout: give `--pack` the reference —
 `pack template --pack cr://10.92.16.25:5000/ee/bundles/adh:4.3.0 …`. The tool reads the index, the schemas, the
 templates and the image configs itself and never an image layer — see
@@ -102,11 +115,11 @@ templates and the image configs itself and never an image layer — see
 | command                                                                                                                                                                                | what it does                                                                                                                                                                                                                                                                                                                                   |
 |----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `pack check [--plain-http] <dir\|ref>`                                                                                                                                                 | Author checks on a component directory (`schema.json`, `templates/`, `image.json`), or on a composition — a directory or a pack in a registry (`cr://host/repo:tag`) — then every member is checked and the composition's own rules (role binding, ordering, membership) on top. Exit 1 with one line per problem.                             |
-| `pack template --pack <dir\|ref> --values <file> --name <installation> [--target horchestra] [--provider <path\|cr://image>] [--set <k>=<v> …] [--namespace <ns>] [-o <dir>] [--plain-http] [--secretProvider generate\|env\|file:<dir> --secret <pointer> …]` | Render for a target. `--pack` is a composition or a lone component, as a directory or a registry reference. `--target` picks the system — its provider `pack-provider-<target>` is run (today `horchestra`, the default) — `--set` passes its settings — horchestra takes `namespace`, `--namespace` is the shorthand; a setting the target does not know is refused. Without `-o`, the target's objects as a YAML stream on stdout. `--secret` names password leaves the tool provisions itself (an explicit allowlist); the provider says where their values come from — see [docs/values.md](docs/values.md#credentials-the-tool-creates). |
+| `pack template --pack <dir\|ref> --values <file> --name <installation> [--config <env.yaml>] [--target horchestra] [--provider <path\|cr://image>] [--set <k>=<v> …] [--namespace <ns>] [-o <dir>] [--plain-http] [--secretProvider generate\|env\|file:<dir> --secret <pointer> …]` | Render for a target. `--pack` is a composition or a lone component, as a directory or a registry reference. `--target` picks the system — its provider `pack-provider-<target>` is run (today `horchestra`, the default) — `--set` passes its settings — horchestra takes `namespace`, `--namespace` is the shorthand; a setting the target does not know is refused. Without `-o`, the target's objects as a YAML stream on stdout. `--secret` names password leaves the tool provisions itself (an explicit allowlist); the provider says where their values come from — see [docs/values.md](docs/values.md#credentials-the-tool-creates). |
 | `pack schema vocabulary\|platform [--target <t>]` | Print the `x-pack-*` vocabulary the tool ships (`horchestra://pack/v1`), or the schema a target gives the platform half (the slot `urn:pack:platform`). |
 | `pack plan [--from <dir\|ref>] --to <dir\|ref> --values <file> [--savepoints auto\|none\|k1,k2] [--no-rollback k1,k2\|all] [--strict] [-o plan.yaml] [--plain-http]`                   | The saga: a first installation (no `--from`) or the upgrade between two versions — what changes, which hooks run, the rollback units and how far a failure rolls back ([docs/saga.md](docs/saga.md)). Prints the plan; `-o` also writes it as YAML.                                                                                            |
-| `pack apply --pack <dir\|ref> --values <file> --name <installation> [--target <t>] [--set <k>=<v> …] [--savepoints …] [--no-rollback …] [--strict] [--dry-run] [--from-start] [--secretProvider … --secret …]` | Install or upgrade on a target that performs steps (`execute` capability): the target says what is installed, pack plans the saga, drives it step by step through the provider and rolls a failed unit back; an unfinished saga is continued from its last savepoint by the same command, `--from-start` runs it from its first step; the record of the installation stays with the target ([docs/saga.md](docs/saga.md#execution)). |
-| `pack rollback --name <installation> [--target <t>] [--set <k>=<v> …] [--dry-run]` | Take an installation back: an unfinished saga is undone whole — its units behind savepoints too; after a finished one, a saga back to the version it replaced ([docs/saga.md](docs/saga.md#execution)). |
+| `pack apply --pack <dir\|ref> --values <file> --name <installation> [--config <env.yaml>] [--target <t>] [--set <k>=<v> …] [--savepoints …] [--no-rollback …] [--strict] [--dry-run] [--from-start] [--secretProvider … --secret …]` | Install or upgrade on a target that performs steps (`execute` capability): the target says what is installed, pack plans the saga, drives it step by step through the provider and rolls a failed unit back; an unfinished saga is continued from its last savepoint by the same command, `--from-start` runs it from its first step; the record of the installation stays with the target ([docs/saga.md](docs/saga.md#execution)). |
+| `pack rollback --name <installation> [--config <env.yaml>] [--target <t>] [--set <k>=<v> …] [--dry-run]` | Take an installation back: an unfinished saga is undone whole — its units behind savepoints too; after a finished one, a saga back to the version it replaced ([docs/saga.md](docs/saga.md#execution)). |
 
 ## Repository layout
 
@@ -116,6 +129,7 @@ pack/
   cmd/pack-provider-horchestra/  the horchestra provider: target/horchestra behind the provider protocol
   proto/               provider.proto — the protocol between pack and a provider; gen.sh regenerates provider/providerpb
   provider/            Launch (pack's side: a provider binary as a target.Target) and Serve (a provider binary's main)
+  environment/         an environment: its file and Vault KV, the set its provider gets (app-config)
   sdk/                 the author's SDK — what a component is written against, and what the tool is built on:
     sdk.go               Meta, Component, Workload, Generate, Verify, Main
     packschema/          the vocabulary (Go types) and the generator Reflect()

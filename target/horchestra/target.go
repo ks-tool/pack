@@ -7,20 +7,14 @@ import (
 	"github.com/ks-tool/pack/target"
 )
 
-// Target is horchestra as a target: settings `namespace` (default "default").
+// Target is horchestra as a target; of the environment's set it reads
+// `namespace` (default "default").
 type Target struct{}
 
 func (Target) Name() string { return "horchestra" }
 
 func (t Target) Configure(installation string, settings target.Settings) (target.Installation, error) {
-	s := target.Settings{}
-	for k, v := range settings {
-		s[k] = v
-	}
-	ctx := Context{Installation: installation, Namespace: s.Take("namespace", "default")}
-	if err := s.Rest(t.Name()); err != nil {
-		return nil, err
-	}
+	ctx := Context{Installation: installation, Namespace: settings.Get("namespace", "default")}
 	return bound{names{ctx.Installation, ctx.Namespace}, ctx}, nil
 }
 

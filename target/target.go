@@ -7,10 +7,7 @@ package target
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
-	"sort"
-	"strings"
 
 	"github.com/ks-tool/pack/render"
 )
@@ -20,8 +17,10 @@ type Target interface {
 	// Name is how an operator selects it (--target).
 	Name() string
 	// Configure binds the target to one installation: the name the release
-	// is installed under, and the target's own settings (a namespace, an
-	// inventory). A setting the target does not know is refused.
+	// is installed under, and the environment's whole set (package
+	// environment: its file, its Vault KV, the command line) — the target
+	// reads what is its own (a namespace, an inventory, credentials) and
+	// leaves the rest.
 	Configure(installation string, settings Settings) (Installation, error)
 }
 
@@ -75,30 +74,15 @@ type Step struct {
 	Credentials []render.Credential
 }
 
-// Settings are a target's own words, key=value.
+// Settings are the environment's set, key=value, keys in lower case.
 type Settings map[string]string
 
-// Take removes and returns a setting, or def when it is absent.
-func (s Settings) Take(key, def string) string {
-	v, ok := s[key]
-	if !ok {
-		return def
+// Get returns a setting, or def when it is absent.
+func (s Settings) Get(key, def string) string {
+	if v, ok := s[key]; ok {
+		return v
 	}
-	delete(s, key)
-	return v
-}
-
-// Rest refuses what nobody took — a typo must not pass as a default.
-func (s Settings) Rest(target string) error {
-	if len(s) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(s))
-	for k := range s {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return fmt.Errorf("target %s: unknown setting %s", target, strings.Join(keys, ", "))
+	return def
 }
 
 // Output is what a target makes of a release, as files: the CLI writes them

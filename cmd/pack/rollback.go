@@ -38,7 +38,7 @@ func runRollback(args []string) error {
 	defer closeTarget()
 	x, ok := inst.(target.Executor)
 	if !ok {
-		return fmt.Errorf("target %s does not perform steps (no %q capability)", *tf.name, target.CapExecute)
+		return fmt.Errorf("target %s does not perform steps (no %q capability)", tf.target(), target.CapExecute)
 	}
 	ctx := render.Context{Installation: *name, Target: inst}
 	rec, err := saga.Read(x)
@@ -46,7 +46,7 @@ func runRollback(args []string) error {
 		return err
 	}
 	if rec == nil || (len(rec.Pack) == 0 && !rec.Unfinished()) {
-		return fmt.Errorf("nothing is installed as %s on %s", *name, *tf.name)
+		return fmt.Errorf("nothing is installed as %s on %s", *name, tf.target())
 	}
 	sctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

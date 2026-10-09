@@ -56,7 +56,7 @@ func runApply(args []string) error {
 	defer closeTarget()
 	x, ok := inst.(target.Executor)
 	if !ok {
-		return fmt.Errorf("target %s does not perform steps (no %q capability): pack template renders for it", *tf.name, target.CapExecute)
+		return fmt.Errorf("target %s does not perform steps (no %q capability): pack template renders for it", tf.target(), target.CapExecute)
 	}
 	ctx := render.Context{Installation: *name, Target: inst}
 
@@ -145,7 +145,7 @@ func runApply(args []string) error {
 	if err := run.Execute(sctx); err != nil {
 		return err
 	}
-	fmt.Println(strings.Join(strings.Fields(fmt.Sprintf("installed %s %s as %s on %s", toB.Name, toB.Version, *name, *tf.name)), " "))
+	fmt.Println(strings.Join(strings.Fields(fmt.Sprintf("installed %s %s as %s on %s", toB.Name, toB.Version, *name, tf.target())), " "))
 	return nil
 }
 

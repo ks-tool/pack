@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,11 +22,18 @@ type fake struct{}
 
 func (fake) Name() string           { return "fake" }
 func (fake) Capabilities() []string { return []string{target.CapExecute} }
+
+// Configure writes down the set it got (settings.json), for tests to see.
 func (fake) Configure(installation string, s target.Settings) (target.Installation, error) {
-	if len(s) > 0 {
-		return nil, fmt.Errorf("target fake: no settings")
+	dir := s.Get("fake_dir", os.Getenv("PACK_FAKE_DIR"))
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
 	}
-	return &inst{name: installation, dir: os.Getenv("PACK_FAKE_DIR")}, nil
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), raw, 0o600); err != nil {
+		return nil, err
+	}
+	return &inst{name: installation, dir: dir}, nil
 }
 
 type inst struct{ name, dir string }
