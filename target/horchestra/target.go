@@ -55,7 +55,7 @@ func (i bound) Convert(rel *render.Release, credentials []render.Credential) (*t
 		return nil, err
 	}
 	files = append(files, target.File{Path: "report.yaml", Data: rep, Mode: 0o644})
-	return &target.Output{Files: files, Report: out.Report}, nil
+	return &target.Output{Files: files}, nil
 }
 
 var _ target.Target = Target{}

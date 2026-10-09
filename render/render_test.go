@@ -18,36 +18,31 @@ import (
 // target, and the properties below do not depend on which one it is.
 type testTarget struct{ installation, namespace string }
 
-func (n testTarget) Service(key string) string { return n.installation + "-" + key }
-func (n testTarget) Instance(key string, i int) string {
-	return fmt.Sprintf("%s-%d", n.Service(key), i)
-}
-func (n testTarget) Namespace() string { return n.namespace }
-func (n testTarget) Address(key string, i int) string {
-	if i < 0 {
-		return n.Service(key) + "." + n.namespace
-	}
-	return fmt.Sprintf("%s.%s.%s", n.Instance(key, i), n.Service(key), n.namespace)
-}
+func (n testTarget) Namespace() string    { return n.namespace }
 func (testTarget) PlatformSchema() []byte { return nil }
-func (testTarget) Replicas(_ string, p map[string]any) (int, error) {
-	if n, ok := p["replicas"].(float64); ok {
-		return int(n), nil
+func (n testTarget) Resolve(key, scale string, p map[string]any) (*Resolved, error) {
+	svc := n.installation + "-" + key
+	res := &Resolved{Service: svc, Address: svc + "." + n.namespace, Limits: map[string]any{}}
+	if scale == "replicas" {
+		count := 1
+		if c, ok := p["replicas"].(float64); ok {
+			count = int(c)
+		}
+		for i := range count {
+			name := fmt.Sprintf("%s-%d", svc, i)
+			res.Instances = append(res.Instances, Instance{Name: name, Address: name + "." + svc + "." + n.namespace})
+		}
 	}
-	return 1, nil
-}
-func (testTarget) Limits(_ string, p map[string]any) (map[string]any, error) {
-	res, _ := p["resources"].(map[string]any)
-	lim, _ := res["limits"].(map[string]any)
-	out := map[string]any{}
+	res2, _ := p["resources"].(map[string]any)
+	lim, _ := res2["limits"].(map[string]any)
 	if m, ok := lim["memory"].(string); ok {
 		q, err := compute.Quantity(m)
 		if err != nil {
 			return nil, err
 		}
-		out["memory"] = q / 1000
+		res.Limits["memory"] = q / 1000
 	}
-	return out, nil
+	return res, nil
 }
 func (testTarget) ValidatePlatform(key string, p map[string]any, minimum map[string]string) []string {
 	res, _ := p["resources"].(map[string]any)

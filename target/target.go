@@ -62,8 +62,7 @@ func (s Settings) Rest(target string) error {
 // Output is what a target makes of a release, as files: the CLI writes them
 // under -o, or streams those marked Stream to stdout.
 type Output struct {
-	Files  []File
-	Report render.Report
+	Files []File
 }
 
 // File is one object of the target, serialised.

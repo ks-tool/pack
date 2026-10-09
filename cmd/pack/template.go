@@ -58,10 +58,11 @@ func runTemplate(args []string) error {
 	}
 	v.Skip = append(v.Skip, skip...)
 
-	inst, err := tf.configure(*name)
+	inst, closeTarget, err := tf.configure(*name)
 	if err != nil {
 		return err
 	}
+	defer closeTarget()
 	credentials, err := render.Provision(b, &v, *name, render.Provider(*provider), secrets)
 	if err != nil {
 		return err

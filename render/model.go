@@ -2,8 +2,9 @@
 // a values document become a Release — the selection and its order, every
 // formula evaluated, every config file rendered, libraries resolved to
 // images. Where it runs is a target's business (target/horchestra); the one
-// thing render asks of a target is Names, because a neighbour's address ends
-// up inside a config file.
+// thing render asks of a target is what a key's platform means — names,
+// addresses, instances, limits (Target.Resolve) — because a neighbour's
+// address ends up inside a config file.
 package render
 
 import (

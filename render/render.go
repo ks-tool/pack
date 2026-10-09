@@ -23,39 +23,42 @@ type Context struct {
 }
 
 // Target is what the render asks of the system it renders for. A key's
-// platform subtree is the target's: its schema, how many instances it means,
-// what it says about limits, whether it meets the composition's minimum —
-// the render reads none of it itself.
+// platform subtree is the target's: its schema, what it means — names,
+// addresses, instances, limits — and whether it meets the composition's
+// minimum; the render reads none of it itself. A pack is rendered for one
+// target, never for "any": a neighbour's address ends up in a config file.
 type Target interface {
-	Names
 	// PlatformSchema is the schema of a key's platform subtree in the
 	// target's words; its $id is platform.SlotID.
 	PlatformSchema() []byte
-	// Replicas is how many instances a key of scale: replicas runs.
-	Replicas(key string, platform map[string]any) (int, error)
-	// Limits are the facts formulas read as `limits`: memory in bytes, cpu
-	// in millicores, absent where the target has no limit to tell.
-	Limits(key string, platform map[string]any) (map[string]any, error)
+	// Namespace is the scope the target installs into; empty where it has none.
+	Namespace() string
+	// Resolve says what a selected key's platform means on the target. scale
+	// is the component's x-pack.scale; a key that is not replicas has no
+	// instances of its own and is addressed as one service.
+	Resolve(key, scale string, platform map[string]any) (*Resolved, error)
 	// ValidatePlatform checks a key's platform against what the composition
 	// requires of it (x-pack.minimum), one "pointer: message" per problem.
 	ValidatePlatform(key string, platform map[string]any, minimum map[string]string) []string
 }
 
-// Names is the one part of a target the render sees: how it names and
-// reaches what it runs. Formulas read it as me and peers (service,
-// instances) and as pack.service, pack.instance and pack.namespace — a pack
-// is rendered once per target, never for
-// "any" target, because a neighbour's address is part of a config file.
-type Names interface {
-	// Service is the stable name of a key as a whole.
-	Service(key string) string
-	// Instance is the name of replica i of a key.
-	Instance(key string, i int) string
-	// Address is how a neighbour reaches replica i of a key; i < 0 is the key
-	// as one service, which is all a key that does not scale has.
-	Address(key string, i int) string
-	// Namespace is the scope the target installs into; empty where it has none.
-	Namespace() string
+// Resolved is a key as the target will run it.
+type Resolved struct {
+	// Service is the key's stable name; Address how a neighbour reaches it
+	// as one service.
+	Service string
+	Address string
+	// Instances are its replicas in order — scale: replicas only.
+	Instances []Instance
+	// Limits are the facts formulas read as `limits`: memory in bytes, cpu
+	// in millicores, absent where the target has no limit to tell.
+	Limits map[string]any
+}
+
+// Instance is one replica: its name and how a neighbour reaches it.
+type Instance struct {
+	Name    string
+	Address string
 }
 
 // Values is the operator's document.
@@ -96,10 +99,9 @@ type render struct {
 	keys   []string
 	order  []string
 	report Report
-	// instances and limits are the target's answers about each selected key,
-	// asked once the platform subtrees are settled (resolve).
-	instances map[string]int
-	limits    map[string]map[string]any
+	// resolved is the target's answer about each selected key, asked once
+	// the platform subtrees are settled (resolve).
+	resolved map[string]*Resolved
 }
 
 // Render runs the link: configure → mutate → validate → convert, and stops at
@@ -532,7 +534,7 @@ func (r *render) eval(f *formula, doc map[string]any, instance map[string]any) (
 	common, _ := doc["common"].(map[string]any)
 	vars := map[string]any{
 		"values": orEmpty(sub),
-		"limits": orEmpty(r.limits[f.key]),
+		"limits": orEmpty(r.resolved[f.key].Limits),
 		"common": orEmpty(common),
 		"me":     r.me(f.key),
 		"peers":  r.peerVars(f.key),
@@ -551,44 +553,37 @@ func orEmpty(m any) any {
 	return m
 }
 
-// resolve asks the target what each selected key's platform means: how many
-// instances (scale: replicas only — single is one, addressed as the key) and
-// the limits formulas may read.
+// resolve asks the target what each selected key's platform means: its
+// names and addresses, its instances (scale: replicas only — single is one,
+// addressed as the key) and the limits formulas may read.
 func (r *render) resolve() error {
-	r.instances, r.limits = map[string]int{}, map[string]map[string]any{}
+	r.resolved = map[string]*Resolved{}
 	for _, key := range r.keys {
 		keyDoc, _ := get(r.doc, "/"+key)
 		km, _ := keyDoc.(map[string]any)
 		platform, _ := km["platform"].(map[string]any)
-		if r.b.Components[r.b.KeyComponent[key]].Root.Scale == "replicas" {
-			n, err := r.ctx.Target.Replicas(key, platform)
-			if err != nil {
-				return fmt.Errorf("%s: %w", key, err)
-			}
-			r.instances[key] = n
-		}
-		l, err := r.ctx.Target.Limits(key, platform)
+		res, err := r.ctx.Target.Resolve(key, r.b.Components[r.b.KeyComponent[key]].Root.Scale, platform)
 		if err != nil {
 			return fmt.Errorf("%s: %w", key, err)
 		}
-		r.limits[key] = l
+		r.resolved[key] = res
 	}
 	return nil
 }
 
 // replicas is 0 for a key that does not scale, n ≥ 1 for scale: replicas.
-func (r *render) replicas(key string) int { return r.instances[key] }
+func (r *render) replicas(key string) int { return len(r.resolved[key].Instances) }
 
 // me describes a key by names only: service, instances, replicas, ports.
 func (r *render) me(key string) map[string]any {
-	svc := r.ctx.Target.Service(key)
-	n := r.replicas(key)
+	res := r.resolved[key]
+	svc, n := res.Service, len(res.Instances)
 	var instances []any
 	if n == 0 {
-		instances = []any{r.ctx.Target.Address(key, -1)}
+		instances = []any{res.Address}
 	} else {
-		for i := range n {
-			instances = append(instances, r.ctx.Target.Address(key, i))
+		for _, in := range res.Instances {
+			instances = append(instances, in.Address)
 		}
 	}
 	ports := map[string]any{}
@@ -616,7 +611,7 @@ func (r *render) packContext(key string, instance map[string]any) map[string]any
 		"namespace":    r.ctx.Target.Namespace(),
 		"installation": r.ctx.Installation,
 		"component":    key,
-		"service":      r.ctx.Target.Service(key),
+		"service":      r.resolved[key].Service,
 		"replicas":     max(r.replicas(key), 1),
 	}
 	maps.Copy(h, instance)
@@ -625,7 +620,11 @@ func (r *render) packContext(key string, instance map[string]any) map[string]any
 
 // instanceVars are the per-replica fields of the pack context.
 func (r *render) instanceVars(key string, i int) map[string]any {
-	return map[string]any{"instance": r.ctx.Target.Instance(key, i), "index": i, "ordinal": i + 1}
+	name := r.resolved[key].Service // a key that does not scale is its one instance
+	if in := r.resolved[key].Instances; i < len(in) {
+		name = in[i].Name
+	}
+	return map[string]any{"instance": name, "index": i, "ordinal": i + 1}
 }
 
 // instanceDoc re-evaluates the per-replica formulas of a key for replica i,

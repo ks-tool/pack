@@ -45,10 +45,11 @@ func runPlan(args []string) error {
 		}
 	}
 	v.Skip = append(v.Skip, skip...)
-	inst, err := tf.configure(*name)
+	inst, closeTarget, err := tf.configure(*name)
 	if err != nil {
 		return err
 	}
+	defer closeTarget()
 	ctx := render.Context{Installation: *name, Target: inst}
 	toB, err := openPack(*to, *plainHTTP)
 	if err != nil {

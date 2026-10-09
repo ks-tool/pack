@@ -1,0 +1,227 @@
+syntax = "proto3";
+
+// Provider is the seam between pack and a target — horchestra, Kubernetes, VMs.
+// pack knows no target: it renders a pack to a target-neutral Release, and a
+// provider, a program of its own, says what a key's platform means on its
+// system and turns the release into the system's objects.
+//
+// pack starts the provider binary (pack-provider-<target>), gives it a unix
+// socket in a private directory (PACK_PROVIDER_SOCKET) and its stdin — EOF on
+// stdin is the provider's signal to exit — and speaks this service over the
+// socket. The method set is closed and carries data only.
+//
+// Free-form documents — a key's platform subtree, the limits formulas read,
+// the computed values of the report — travel as JSON, not as
+// google.protobuf.Struct: Struct makes every number a double, and a formula's
+// integer division must stay integer.
+package pack.provider.v1;
+
+option go_package = "github.com/ks-tool/pack/provider/providerpb;providerpb";
+
+service Provider {
+  // Handshake is the first call: the protocol the provider speaks and the
+  // target it is. pack refuses a protocol it does not know.
+  rpc Handshake(HandshakeRequest) returns (HandshakeResponse);
+  // Configure binds the provider to one installation; every call after it
+  // is about that installation. A setting the target does not take is an
+  // InvalidArgument.
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  // Resolve says what a selected key's platform means on the target.
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // ValidatePlatform checks a key's platform against the composition's minimum.
+  rpc ValidatePlatform(ValidatePlatformRequest) returns (ValidatePlatformResponse);
+  // Convert turns a release into the target's objects, as files.
+  rpc Convert(ConvertRequest) returns (ConvertResponse);
+}
+
+message HandshakeRequest {
+  string protocol = 1;
+}
+
+message HandshakeResponse {
+  string protocol = 1;
+  string target = 2;
+}
+
+message ConfigureRequest {
+  string installation = 1;
+  map<string, string> settings = 2;
+}
+
+message ConfigureResponse {
+  // namespace is the scope the target installs into; empty where it has none.
+  string namespace = 1;
+  // platform_schema is the JSON Schema of a key's platform subtree, $id urn:pack:platform.
+  bytes platform_schema = 2;
+}
+
+message ResolveRequest {
+  string key = 1;
+  // scale is the component's x-pack.scale: single or replicas.
+  string scale = 2;
+  bytes platform_json = 3;
+}
+
+message ResolveResponse {
+  string service = 1;
+  string address = 2;
+  repeated Instance instances = 3;
+  bytes limits_json = 4;
+}
+
+message Instance {
+  string name = 1;
+  string address = 2;
+}
+
+message ValidatePlatformRequest {
+  string key = 1;
+  bytes platform_json = 2;
+  map<string, string> minimum = 3;
+}
+
+message ValidatePlatformResponse {
+  repeated string problems = 1;
+}
+
+message ConvertRequest {
+  Release release = 1;
+  repeated Credential credentials = 2;
+}
+
+message ConvertResponse {
+  repeated File files = 1;
+}
+
+message File {
+  string path = 1;
+  bytes data = 2;
+  uint32 mode = 3;
+  // stream: part of what `pack template` prints without -o.
+  bool stream = 4;
+}
+
+message Credential {
+  string name = 1;
+  string leaf = 2;
+  string value = 3;
+  string key = 4;
+}
+
+// ---- render.Release
+
+message Release {
+  string installation = 1;
+  string pack = 2;
+  string version = 3;
+  Rollout rollout = 4;
+  repeated Unit units = 5;
+  Report report = 6;
+}
+
+message Rollout {
+  int64 max_unavailable = 1;
+}
+
+message Unit {
+  string key = 1;
+  string component = 2;
+  int64 replicas = 3;
+  string image = 4;
+  string restart_policy = 5;
+  repeated string command = 6;
+  repeated string args = 7;
+  repeated EnvVar env = 8;
+  repeated Port ports = 9;
+  bool spread = 10;
+  bytes platform_json = 11;
+  Readiness readiness = 12;
+  repeated Claim data = 13;
+  repeated Library libraries = 14;
+  repeated RenderedFile files = 15;
+  repeated SecretFile secret_files = 16;
+}
+
+message EnvVar {
+  string name = 1;
+  string value = 2;
+  SecretRef secret = 3;
+}
+
+message SecretRef {
+  string name = 1;
+  string key = 2;
+}
+
+message Port {
+  string name = 1;
+  int64 port = 2;
+}
+
+message Readiness {
+  TCPProbe tcp = 1;
+  HTTPProbe http = 2;
+  repeated string exec = 3;
+}
+
+message TCPProbe {
+  int64 port = 1;
+}
+
+message HTTPProbe {
+  int64 port = 1;
+  string path = 2;
+}
+
+message Claim {
+  string name = 1;
+  string path = 2;
+  string size = 3;
+}
+
+message Library {
+  string name = 1;
+  string path = 2;
+  string image = 3;
+}
+
+message RenderedFile {
+  string path = 1;
+  optional uint32 mode = 2;
+  bytes content = 3;
+  bool per_instance = 4;
+  // instances: one per replica, in order; present is false where the
+  // replica's section was empty and the file does not exist for it.
+  repeated InstanceBytes instances = 5;
+  repeated string secrets = 6;
+}
+
+message InstanceBytes {
+  bool present = 1;
+  bytes data = 2;
+}
+
+message SecretFile {
+  string path = 1;
+  optional uint32 mode = 2;
+  SecretRef secret = 3;
+  bool per_instance = 4;
+}
+
+message Report {
+  string installation = 1;
+  string namespace = 2;
+  string pack = 3;
+  repeated string order = 4;
+  map<string, Roles> peers = 5;
+  bytes computed_json = 6;
+  map<string, Names> secrets = 7;
+}
+
+message Roles {
+  map<string, string> roles = 1;
+}
+
+message Names {
+  repeated string names = 1;
+}

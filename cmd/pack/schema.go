@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"os"
 
 	"github.com/ks-tool/pack/sdk/platform"
@@ -24,14 +23,11 @@ func runSchema(args []string) error {
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		t, ok := targets[*tf.name]
-		if !ok {
-			return fmt.Errorf("--target %q: unknown", *tf.name)
-		}
-		inst, err := t.Configure("schema", nil)
+		inst, closeTarget, err := tf.configure("schema")
 		if err != nil {
 			return err
 		}
+		defer closeTarget()
 		_, err = os.Stdout.Write(inst.PlatformSchema())
 		return err
 	}

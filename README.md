@@ -62,14 +62,15 @@ Generate, check, render:
 
 ```sh
 go generate ./examples/...                       # writes examples/*/schema.json
-go run ./cmd/pack check examples/postgres        # author checks — the same ones the loader repeats
+go build -o bin/ ./cmd/...                       # pack and the providers it runs, side by side
+bin/pack check examples/postgres                 # author checks — the same ones the loader repeats
 cat > values.yaml <<'Y'
 values:
   postgres:
     database: app
     superuser: {password: {secretRef: {name: pg, key: password}}}
 Y
-go run ./cmd/pack template --pack examples/postgres --values values.yaml --name dev --namespace apps -o out/
+bin/pack template --pack examples/postgres --values values.yaml --name dev --namespace apps -o out/
 ```
 
 `out/applicationset.yaml` holds one application named `postgres` with the image from `pack.yaml`, `POSTGRES_USER`/
@@ -79,6 +80,11 @@ holds `postgresql.conf` with `shared_buffers=128MB` computed from the memory lim
 
 A composition of several components — ZooKeeper, Kafka on it, two Postgres instances, a JDK library shared by the JVMs —
 is `examples/adh`; its golden output is `examples/adh/testdata/expected`.
+
+`pack` knows no target. The objects come from a **provider**, a program of its own: `--target horchestra` (the
+default) runs `pack-provider-horchestra`, found in `$PACK_PROVIDER_PATH`, beside `pack`, or on `PATH`, and speaks
+`proto/provider.proto` with it over a unix socket — what a key's platform means on the target (names, addresses,
+instances, limits), whether it meets the composition's minimum, what a rendered release becomes.
 
 From a registry instead of a checkout: give `--pack` the reference —
 `pack template --pack cr://10.92.16.25:5000/ee/bundles/adh:4.3.0 …`. The tool reads the index, the schemas, the
@@ -90,7 +96,7 @@ templates and the image configs itself and never an image layer — see
 | command                                                                                                                                                                                | what it does                                                                                                                                                                                                                                                                                                                                   |
 |----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `pack check [--plain-http] <dir\|ref>`                                                                                                                                                 | Author checks on a component directory (`schema.json`, `templates/`, `image.json`), or on a composition — a directory or a pack in a registry (`cr://host/repo:tag`) — then every member is checked and the composition's own rules (role binding, ordering, membership) on top. Exit 1 with one line per problem.                             |
-| `pack template --pack <dir\|ref> --values <file> --name <installation> [--target horchestra] [--set <k>=<v> …] [--namespace <ns>] [-o <dir>] [--plain-http] [--secretProvider generate\|env\|file:<dir> --secret <pointer> …]` | Render for a target. `--pack` is a composition or a lone component, as a directory or a registry reference. `--target` picks the system (today only `horchestra`, the default), `--set` passes its settings — horchestra takes `namespace`, `--namespace` is the shorthand; a setting the target does not know is refused. Without `-o`, the target's objects as a YAML stream on stdout. `--secret` names password leaves the tool provisions itself (an explicit allowlist); the provider says where their values come from — see [docs/values.md](docs/values.md#credentials-the-tool-creates). |
+| `pack template --pack <dir\|ref> --values <file> --name <installation> [--target horchestra] [--set <k>=<v> …] [--namespace <ns>] [-o <dir>] [--plain-http] [--secretProvider generate\|env\|file:<dir> --secret <pointer> …]` | Render for a target. `--pack` is a composition or a lone component, as a directory or a registry reference. `--target` picks the system — its provider `pack-provider-<target>` is run (today `horchestra`, the default) — `--set` passes its settings — horchestra takes `namespace`, `--namespace` is the shorthand; a setting the target does not know is refused. Without `-o`, the target's objects as a YAML stream on stdout. `--secret` names password leaves the tool provisions itself (an explicit allowlist); the provider says where their values come from — see [docs/values.md](docs/values.md#credentials-the-tool-creates). |
 | `pack schema vocabulary\|platform [--target <t>]` | Print the `x-pack-*` vocabulary the tool ships (`horchestra://pack/v1`), or the schema a target gives the platform half (the slot `urn:pack:platform`). |
 | `pack plan [--from <dir\|ref>] --to <dir\|ref> --values <file> [--savepoints auto\|none\|k1,k2] [--no-rollback k1,k2\|all] [--strict] [-o plan.yaml] [--plain-http]`                   | The saga: a first installation (no `--from`) or the upgrade between two versions — what changes, which hooks run, the rollback units and how far a failure rolls back ([docs/saga.md](docs/saga.md)). Prints the plan; `-o` also writes it as YAML.                                                                                            |
 
@@ -99,6 +105,9 @@ templates and the image configs itself and never an image layer — see
 ```
 pack/
   cmd/pack/            the CLI
+  cmd/pack-provider-horchestra/  the horchestra provider: target/horchestra behind the provider protocol
+  proto/               provider.proto — the protocol between pack and a provider; gen.sh regenerates provider/providerpb
+  provider/            Launch (pack's side: a provider binary as a target.Target) and Serve (a provider binary's main)
   sdk/                 the author's SDK — what a component is written against, and what the tool is built on:
     sdk.go               Meta, Component, Workload, Generate, Verify, Main
     packschema/          the vocabulary (Go types) and the generator Reflect()
@@ -133,12 +142,14 @@ pack/
 
 ## Building and testing
 
-Go 1.26 only (`GOTOOLCHAIN=go1.26.5`); one module, no `go.work`:
+Go 1.27 (`go.mod` says `go 1.27.1`); one module, no `go.work`:
 
 ```sh
-GOTOOLCHAIN=go1.26.5 go test ./...
-GOTOOLCHAIN=go1.26.5 go generate ./examples/...   # after editing an example
-UPDATE_GOLDEN=1 GOTOOLCHAIN=go1.26.5 go test ./target/... ./plan/   # after a deliberate output change
+go test ./...                # -short skips building the provider binary
+go build -o bin/ ./cmd/...   # pack + pack-provider-horchestra, side by side
+go generate ./examples/...   # after editing an example
+PATH="$HOME/go/bin:$PATH" proto/gen.sh            # after editing proto/provider.proto (protoc, protoc-gen-go, protoc-gen-go-grpc)
+UPDATE_GOLDEN=1 go test ./target/... ./plan/   # after a deliberate output change
 ```
 
 Tests fail when a committed `schema.json` drifts from its Go source, and when the rendered output of `examples/adh`

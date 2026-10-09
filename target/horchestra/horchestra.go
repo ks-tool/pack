@@ -46,31 +46,36 @@ func (c Context) Target() render.Target { return names{c.Installation, c.Namespa
 // <service>-<i>.<service>.<namespace> — and what its platform means.
 type names struct{ installation, namespace string }
 
-func (n names) Service(key string) string { return n.installation + "-" + key }
-
-func (n names) Instance(key string, i int) string { return fmt.Sprintf("%s-%d", n.Service(key), i) }
-
-func (n names) Address(key string, i int) string {
-	if i < 0 {
-		return n.Service(key) + "." + n.namespace
-	}
-	return fmt.Sprintf("%s.%s.%s", n.Instance(key, i), n.Service(key), n.namespace)
-}
-
 func (n names) Namespace() string { return n.namespace }
 
 func (names) PlatformSchema() []byte { return platformSchema }
 
-// Replicas: platform.replicas, 1 when the operator gave none.
-func (names) Replicas(_ string, platform map[string]any) (int, error) {
-	if n, ok := toInt(platform["replicas"]); ok {
-		return n, nil
+// Resolve: the service <installation>-<key> at <service>.<namespace>; for
+// scale: replicas, platform.replicas instances (1 when the operator gave
+// none), <service>-<i> at <service>-<i>.<service>.<namespace>.
+func (n names) Resolve(key, scale string, platform map[string]any) (*render.Resolved, error) {
+	svc := n.installation + "-" + key
+	res := &render.Resolved{Service: svc, Address: svc + "." + n.namespace}
+	if scale == "replicas" {
+		count := 1
+		if c, ok := toInt(platform["replicas"]); ok {
+			count = c
+		}
+		for i := range count {
+			name := fmt.Sprintf("%s-%d", svc, i)
+			res.Instances = append(res.Instances, render.Instance{Name: name, Address: name + "." + svc + "." + n.namespace})
+		}
 	}
-	return 1, nil
+	lim, err := limits(platform)
+	if err != nil {
+		return nil, err
+	}
+	res.Limits = lim
+	return res, nil
 }
 
-// Limits: platform.resources.limits, memory in bytes, cpu in millicores.
-func (names) Limits(_ string, platform map[string]any) (map[string]any, error) {
+// limits: platform.resources.limits, memory in bytes, cpu in millicores.
+func limits(platform map[string]any) (map[string]any, error) {
 	res, _ := platform["resources"].(map[string]any)
 	lim, _ := res["limits"].(map[string]any)
 	out := map[string]any{}
