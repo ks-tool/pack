@@ -114,7 +114,7 @@ func (s selfOrMember) Member(name string) (*Files, error) {
 }
 
 func isComponent(s *schema.Schema) bool {
-	for _, k := range []string{"platform", "ports", "scale", "claims"} {
+	for _, k := range []string{"platform", "ports", "claims"} {
 		if _, ok := s.Root.Properties[k]; ok {
 			return true
 		}

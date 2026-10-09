@@ -9,6 +9,8 @@ import java.util.Map;
 /** x-pack on the root, with the JSON names of packschema. Nulls, false and empty are omitted. */
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
 public final class Root {
+    /** {@link Scale#SINGLE} or {@link Scale#REPLICAS}: a fact about the application — what sdk.Workload lifts into x-pack.scale in Go. */
+    public String scale;
     public Readiness readiness;
     public Map<String, Peer> peers;
     public Map<String, String> requires;
@@ -19,6 +21,7 @@ public final class Root {
     public List<String> savepoints;
     public Rollout rollout;
 
+    public Root scale(String s) { this.scale = s; return this; }
     public Root readiness(Readiness r) { this.readiness = r; return this; }
     public Root peers(Map<String, Peer> p) { this.peers = p; return this; }
     public Root requires(Map<String, String> r) { this.requires = r; return this; }

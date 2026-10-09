@@ -20,6 +20,7 @@ annotation is refused rather than ignored.
 
 | field | type | meaning |
 |---|---|---|
+| `scale` | `single` \| `replicas` | a fact about the application: one instance addressed as the key, or as many as the target runs; required on a component with `platform`, refused on a library |
 | `readiness` | `{tcp: <port name>}` \| `{http: "<port name>/<path>"}` \| `{exec: [string]}` | how a child is known to be ready |
 | `peers` | `{<role>: {schema: <component name>, required?: bool}}` | roles the component needs and the type each wants |
 | `requires` | `{<library name>: <constraint>}` | libraries and versions; must match the `pack://` keys |
@@ -85,7 +86,7 @@ The subtree, whole, becomes the file. `format` ∈ `json`, `yaml`,
 `text`, `template` — or `secret`, which renders nothing: the leaf is
 `format: password` and the referenced Secret's key is mounted at the path as
 it is. `template`/`parseAs` only with `template`; `mode` octal;
-`perInstance` needs `scale: replicas`.
+`perInstance` needs `x-pack.scale: replicas`.
 
 ## `x-pack-arg` on a leaf
 
@@ -175,7 +176,7 @@ Standard keywords come from `jsonschema:"…"` tags (`invopop/jsonschema`):
 
 | type | schema | use |
 |---|---|---|
-| `sdk.Workload` | `scale` (const) and `platform` (`$ref` to the platform half with a default) | embed it; `sdk.Single(cpu, mem)`, `sdk.Replicated(n, cpu, mem)` |
+| `sdk.Workload` | `x-pack.scale` (lifted from its `Scale`, tag `pack:"scale"`) and `platform` (`$ref` to the platform slot with a default) | embed it; `sdk.Single(cpu, mem)`, `sdk.Replicated(n, cpu, mem)` |
 | `sdk.Platform` | the platform half's value type | the `default` under `platform` |
 | `packschema.Claim` | `{mountPath: const, size: default}` | one volume |
 | `packschema.Secret` | `{type: string, format: password}` | a credential leaf |

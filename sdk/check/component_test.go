@@ -35,10 +35,9 @@ func has(ps []Problem, path, fragment string) bool {
 const base = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object", "additionalProperties": false,
-  "x-pack": {"readiness": {"tcp": "main"}, "hooks": HOOKS},
+  "x-pack": {"scale": "single", "readiness": {"tcp": "main"}, "hooks": HOOKS},
   "properties": {
     "ports": {"type": "object", "properties": {"main": {"type": "integer", "const": 80}}},
-    "scale": {"type": "string", "const": "single"},
     "conf": {"type": "object", "x-pack-file": {"path": "/etc/c/c.properties", "format": "properties"},
              "properties": PROPS}
   }
@@ -128,7 +127,7 @@ func TestSecretFilesAndRestartPolicy(t *testing.T) {
 	}
 
 	s = strings.Replace(with("[]", `{"m": {"type": "integer", "default": 1}}`), `"x-pack": {`, `"x-pack": {"restartPolicy": "Never", `, 1)
-	s = strings.Replace(s, `"const": "single"`, `"const": "replicas"`, 1)
+	s = strings.Replace(s, `"scale": "single"`, `"scale": "replicas"`, 1)
 	ps = run(t, s)
 	if !has(ps, "/x-pack/restartPolicy", "runs once") {
 		t.Errorf("Never with replicas must be refused: %v", ps)
@@ -136,5 +135,22 @@ func TestSecretFilesAndRestartPolicy(t *testing.T) {
 	s = strings.Replace(with("[]", `{"m": {"type": "integer", "default": 1}}`), `"x-pack": {`, `"x-pack": {"restartPolicy": "Sometimes", `, 1)
 	if ps = run(t, s); !has(ps, "/x-pack/restartPolicy", "must be Always") {
 		t.Errorf("an unknown policy must be refused: %v", ps)
+	}
+}
+
+// scale is x-pack.scale: a workload must declare it, and the old value leaf
+// is refused, naming where it went.
+func TestScale(t *testing.T) {
+	ok := with("[]", `{"m": {"type": "integer", "default": 1}}`)
+	if ps := run(t, ok); has(ps, "/x-pack/scale", "") || has(ps, "/scale", "") {
+		t.Errorf("x-pack.scale single is fine: %v", ps)
+	}
+	missing := strings.Replace(ok, `"scale": "single", `, ``, 1)
+	if ps := run(t, missing); !has(ps, "/x-pack/scale", "declares x-pack.scale") {
+		t.Errorf("a workload without scale must be refused: %v", ps)
+	}
+	stale := strings.Replace(missing, `"ports": {`, `"scale": {"type": "string", "const": "single"}, "ports": {`, 1)
+	if ps := run(t, stale); !has(ps, "/scale", "is x-pack.scale") {
+		t.Errorf("the old scale leaf must be refused: %v", ps)
 	}
 }

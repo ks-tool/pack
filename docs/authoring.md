@@ -12,7 +12,7 @@ package kafka
 
 type Kafka struct {
     Ports    Ports               `json:"ports"`
-    sdk.Workload                                     // scale (a fact) and platform (horchestra's schema)
+    sdk.Workload                                     // scale (x-pack.scale, a fact) and platform (the target's schema)
     JDK      jdk.JDK             `json:"jdk" pack_ref:"jdk" pack:"mount=/opt/java"`
     Claims   Claims              `json:"claims"`
     Conf     Conf                `json:"conf" pack:"file=/opt/kafka/config/server.properties,format=properties"`
@@ -57,7 +57,7 @@ Every leaf of the schema is one of three kinds, and the `pack` tag decides:
 
 | tag | schema | meaning | validator | at render |
 |---|---|---|---|---|
-| `pack:"const"` | `const: <value>` | a **fact** about the software: a port, the scale mode, a mount path | a different value is refused | filled in when absent |
+| `pack:"const"` | `const: <value>` | a **fact** about the software: a port, a mount path | a different value is refused | filled in when absent |
 | `pack:"default"` | `default: <value>` | a **setting** with a sensible default | checked by type | filled in when absent |
 | (no tag) | — | the **operator's** field; add `jsonschema:"required"` to make them name it | checked by type; required must be present | — |
 
@@ -74,19 +74,23 @@ type Conf struct {
 ```
 
 Prefer `const` for anything the image fixes (ports the process listens on,
-the data directory baked into it, `scale`). An operator who needs a
+the data directory baked into it). An operator who needs a
 different port is asking for a different image.
 
 ### `ports` and `scale`
 
-Two properties have meaning to the tool:
+`ports` is a property with meaning to the tool; `scale` is a fact of the root:
 
 - `ports` — an object of named ports, every one `const`. Names are what
   neighbours and readiness refer to (`peers.zk.ports.client`,
   `readiness: {tcp: "broker"}`); numbers go to `spec.ports`.
-- `scale` — `const: "single"` or `const: "replicas"`. `replicas` means the
-  operator may set `platform.replicas`, children are named
-  `<installation>-<key>-<i>`, and per-instance files are allowed.
+- `x-pack.scale` — `single` or `replicas`, a fact about the application,
+  not a value anyone writes: `sdk.Workload` lifts it there (`sdk.Single`,
+  `sdk.Replicated`), Python and Java say `Root(scale=…)`. `replicas` means the
+  target decides how many (horchestra: `platform.replicas`), each instance
+  has its own name (horchestra: `<installation>-<key>-<i>`), and per-instance
+  files are allowed. A component with `platform` must declare it; the old
+  `scale` value leaf is refused.
 
 ## 3. The platform half
 
@@ -113,7 +117,7 @@ bytes, `limits.cpu` in millicores, absent where there is no limit
 (`has(limits.memory) ? limits.memory / 1048576 * 3 / 4 : 1024`). Nothing a
 formula computes can change what the target sizes.
 
-A **library** has no `platform` (and no `ports`, no `scale`): it never runs
+A **library** has no `platform` (and no `ports`, no `x-pack.scale`): it never runs
 on its own.
 
 ## 4. Claims — the volumes
@@ -306,7 +310,7 @@ func (Kafka) PackRoot() packschema.Root {
   memory limit.
 - a library's files render into the consumer's Secrets by their own paths.
 
-A library's own schema must not declare `platform`, `ports` or `scale`, and
+A library's own schema must not declare `platform`, `ports` or `x-pack.scale`, and
 its formulas may not read `peers`.
 
 ## 11. Neighbours
@@ -461,7 +465,7 @@ messages. Each problem is `path: sentence`.
 | 4 | every password is under a file or on an `env=` | give the credential a place |
 | 5 | `-flagfile=<p>` in argv matches an `x-pack-file` of format `flagfile` | make the paths agree; the check needs `image.json` or `Command` to see argv |
 | 6 | file paths are absolute, clean, unique, outside node-owned directories; `format` is an emitter (or `secret`, on a password leaf, without template/parseAs); `template` exists and has `parseAs`; `mode` is octal; `perInstance` only with `scale: replicas` | fix the tag |
-| 7 | readiness names a declared port; `ports.*` are `const`; `scale` ∈ single, replicas; `restartPolicy` ∈ Always, OnFailure, Never and `Never` not with replicas; a library declares none of them | fix `PackRoot()` / the struct |
+| 7 | readiness names a declared port; `ports.*` are `const`; `x-pack.scale` ∈ single, replicas on every workload (the old `scale` leaf refused); `restartPolicy` ∈ Always, OnFailure, Never and `Never` not with replicas; a library declares none of them | fix `PackRoot()` / the struct |
 | 8 | every `pack://<lib>#` is in `Requires` and vice versa; a library key has `mount=` | keep the two in step |
 | 9 | hooks: phase, `when` constraints, `image` ∈ new, old, a command, `exclusive` only with an image, `compensate` with a command; an install hook has no `exclusive`, `when.from` or `image: old`; `upgrade.from` parses | fix the hook |
 | 10 | every `x-pack-*` annotation decodes strictly into its type | a misspelled key (`fromat`) is refused here rather than ignored forever |

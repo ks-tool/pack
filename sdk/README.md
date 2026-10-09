@@ -71,7 +71,6 @@ In a test: `sdk.Verify(pginit.Defaults())` runs the author checks (spec
 ```python
 @dataclass
 class Postgres(Component):
-    scale: str = const(Scale.SINGLE)
     platform: Platform = default_factory(Platform.sized("500m", "512Mi"))
     ports: Ports = default_factory(Ports)
     superuser: Superuser = default_factory(Superuser)
@@ -79,7 +78,7 @@ class Postgres(Component):
 
     meta = Meta(name="postgres", version="16.3", image="cr://…/postgres:16.3", artifact="cr://…/components/postgres", templates="templates")
 
-    def root(self): return Root(readiness=Readiness(tcp="pg"), upgrade=Upgrade(from_=">=15"))
+    def root(self): return Root(scale=Scale.SINGLE, readiness=Readiness(tcp="pg"), upgrade=Upgrade(from_=">=15"))
     def compute(self): return {"/conf/shared_buffers": "…"}
 
 if __name__ == "__main__":
@@ -95,12 +94,11 @@ names with dots or reserved words take `json="log.dirs"`. Requires Python
 
 ```java
 public final class Postgres implements Component {
-    @Pack(kind = Pack.Kind.CONST) public String scale = Scale.SINGLE;
     public Platform platform = Platform.sized("500m", "512Mi");
     @File(path = "/etc/postgresql/postgresql.conf", format = "properties") public Conf conf = new Conf();
 
     public Meta meta() { return new Meta("postgres", "16.3").image("cr://…/postgres:16.3").artifact("cr://…/components/postgres"); }
-    public Root root() { return new Root().readiness(Root.Readiness.tcp("pg")).upgrade(">=15"); }
+    public Root root() { return new Root().scale(Scale.SINGLE).readiness(Root.Readiness.tcp("pg")).upgrade(">=15"); }
 }
 ```
 

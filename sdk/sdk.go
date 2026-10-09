@@ -73,11 +73,13 @@ type Composition interface {
 // ---- embeddable pieces
 
 // Workload is what every running component has: the scale fact (single or
-// replicas) and the platform half of its values — replicas, resources, env,
+// replicas — x-pack.scale) and the platform half of its values — replicas, resources, env,
 // metadata — whose schema and meaning the target gives (the platform slot).
 // Embed it; set the default with Single or Replicated.
 type Workload struct {
-	Scale    string   `json:"scale" pack:"const"`
+	// Scale is lifted into x-pack.scale of the component's root: a fact
+	// about the application, not a value anyone writes.
+	Scale    string   `json:"-" pack:"scale"`
 	Platform Platform `json:"platform" pack:"ref=urn:pack:platform,default"`
 }
 

@@ -11,6 +11,10 @@ package packschema
 // Root is `x-pack` on the root of a component schema: what the component asks of
 // the system around it and how it changes versions.
 type Root struct {
+	// Scale is a fact about the application: single — one instance, addressed
+	// as the key — or replicas, any number the target runs. How many is the
+	// target's.
+	Scale     string            `json:"scale,omitempty" jsonschema:"enum=single,enum=replicas"`
 	Readiness *Readiness        `json:"readiness,omitempty"`
 	Peers     map[string]Peer   `json:"peers,omitempty"`    // role → what kind of neighbour
 	Requires  map[string]string `json:"requires,omitempty"` // library name → version constraint

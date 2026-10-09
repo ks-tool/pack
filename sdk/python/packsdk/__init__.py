@@ -13,13 +13,12 @@ ready: Platform (the platform half — its schema is the target's), Scale, Claim
     @dataclass
     class Postgres(Component):
         ports: Ports = default_factory(Ports)
-        scale: str = const(Scale.SINGLE)
         platform: Platform = Platform.sized("500m", "512Mi")
         conf: Conf = file(Conf(), path="/etc/postgresql/postgresql.conf", format="properties")
 
         meta = Meta(name="postgres", version="16.3", image="cr://…/postgres:16.3", artifact="cr://…/components/postgres")
 
-        def root(self): return Root(readiness=Readiness(tcp="pg"))
+        def root(self): return Root(scale=Scale.SINGLE, readiness=Readiness(tcp="pg"))
         def compute(self): return {"/conf/shared_buffers": "…"}
 
 schema(Postgres()) is the schema.json the Go SDK would write for the same

@@ -11,7 +11,6 @@ const kafka = `{
   "x-pack": {"readiness": {"tcp": "broker"}, "peers": {"zk": {"schema": "zookeeper", "required": true}}, "requires": {"jdk": ">=21"}},
   "properties": {
     "ports": {"type": "object", "properties": {"broker": {"type": "integer", "const": 9092}, "internal": {"type": "integer", "const": 9093}}},
-    "scale": {"type": "string", "const": "replicas"},
     "platform": {"$ref": "urn:pack:platform", "default": {"replicas": 3, "resources": {"requests": {"cpu": "1", "memory": "2Gi"}}}},
     "jdk": {"$ref": "pack://jdk#", "x-pack-mount": "/opt/java"},
     "conf": {
@@ -58,7 +57,7 @@ func parseKafka(t *testing.T) *Schema {
 
 func TestParse_AnnotationsAndOrder(t *testing.T) {
 	s := parseKafka(t)
-	if got := s.Root.Order; len(got) != 7 || got[0] != "ports" || got[4] != "conf" || got[6] != "heapOpts" {
+	if got := s.Root.Order; len(got) != 6 || got[0] != "ports" || got[3] != "conf" || got[5] != "heapOpts" {
 		t.Fatalf("document order lost: %v", got)
 	}
 	conf := s.Root.Properties["conf"]
@@ -97,7 +96,7 @@ func TestDefaults(t *testing.T) {
 		t.Fatal(err, ok)
 	}
 	b, _ := json.Marshal(d)
-	want := `{"conf":{"log.dirs":"/var/lib/kafka/data","min.insync.replicas":1},"jaas":{"mechanism":"SCRAM-SHA-512"},"jdk":{"gc":"G1","heapMB":1024},"platform":{"replicas":3,"resources":{"requests":{"cpu":"1","memory":"2Gi"}}},"ports":{"broker":9092,"internal":9093},"scale":"replicas"}`
+	want := `{"conf":{"log.dirs":"/var/lib/kafka/data","min.insync.replicas":1},"jaas":{"mechanism":"SCRAM-SHA-512"},"jdk":{"gc":"G1","heapMB":1024},"platform":{"replicas":3,"resources":{"requests":{"cpu":"1","memory":"2Gi"}}},"ports":{"broker":9092,"internal":9093}}`
 	if string(b) != want {
 		t.Fatalf("defaults:\n got %s\nwant %s", b, want)
 	}
@@ -140,13 +139,13 @@ func TestCompile_PasswordTakesOnlyARef(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok := map[string]any{"scale": "replicas", "platform": map[string]any{"replicas": 3},
+	ok := map[string]any{"platform": map[string]any{"replicas": 3},
 		"jdk":  map[string]any{"gc": "G1"},
 		"jaas": map[string]any{"password": map[string]any{"secretRef": map[string]any{"name": "s", "key": "k"}}}}
 	if v := c.Validate(ok); len(v) != 0 {
 		t.Fatalf("valid doc refused: %v", v)
 	}
-	bad := map[string]any{"jaas": map[string]any{"password": "plaintext"}, "scale": "single", "jdk": map[string]any{"gc": "CMS"}}
+	bad := map[string]any{"jaas": map[string]any{"password": "plaintext"}, "ports": map[string]any{"broker": 1}, "jdk": map[string]any{"gc": "CMS"}}
 	v := c.Validate(bad)
 	if len(v) < 3 {
 		t.Fatalf("expected refusals for plaintext password, wrong const and bad enum, got %v", v)

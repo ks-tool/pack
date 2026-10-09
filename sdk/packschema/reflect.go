@@ -23,6 +23,7 @@ type Computer interface{ PackCompute() map[string]string }
 // Tag grammar — comma-separated, key=value split on the FIRST '=':
 //
 //	const | default
+//	scale                                      (a string field, json:"-") the x-pack.scale fact — sdk.Workload
 //	ref=<uri>[,mount=<path>]                   the field's schema is foreign ($ref) — the platform half
 //	pack_ref:"<name>"  (its own tag)            a member of the pack by name: a library (with pack:"mount=<path>")
 //	                                           or a composition key (with pack:"default,spread,…")
@@ -44,8 +45,18 @@ func Reflect(defaults any) (*jsonschema.Schema, error) {
 	s := r.Reflect(defaults)
 	s.Version = jsonschema.Version
 
+	scale := scaleOf(reflect.ValueOf(defaults))
 	if root, ok := defaults.(Rooter); ok {
-		extras(s)["x-pack"] = root.PackRoot()
+		r := root.PackRoot()
+		if len(scale) > 0 && len(r.Scale) > 0 && r.Scale != scale {
+			return nil, fmt.Errorf("x-pack.scale: PackRoot says %q, the workload %q", r.Scale, scale)
+		}
+		if len(scale) > 0 {
+			r.Scale = scale
+		}
+		extras(s)["x-pack"] = r
+	} else if len(scale) > 0 {
+		extras(s)["x-pack"] = Root{Scale: scale}
 	}
 	if err := annotate(s, reflect.ValueOf(defaults), ""); err != nil {
 		return nil, err
@@ -60,6 +71,36 @@ func Reflect(defaults any) (*jsonschema.Schema, error) {
 		}
 	}
 	return s, nil
+}
+
+// scaleOf finds the field tagged pack:"scale" — on the value or an embedded
+// struct (sdk.Workload) — and returns its value: x-pack.scale, not a property.
+func scaleOf(v reflect.Value) string {
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return ""
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return ""
+	}
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		if _, ok := parseTag(f.Tag.Get("pack"))["scale"]; ok && f.Type.Kind() == reflect.String {
+			return v.Field(i).String()
+		}
+		if f.Anonymous {
+			if s := scaleOf(v.Field(i)); len(s) > 0 {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 func annotate(s *jsonschema.Schema, v reflect.Value, path string) error {

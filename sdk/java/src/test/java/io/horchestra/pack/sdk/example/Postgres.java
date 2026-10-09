@@ -15,7 +15,6 @@ import java.util.Map;
 
 /** examples/postgres described in Java: the same schema.json the Go struct yields. */
 public final class Postgres implements Component {
-    @Pack(kind = Pack.Kind.CONST) public String scale = Scale.SINGLE;      // what sdk.Workload embeds in Go
     public Platform platform = Platform.sized("500m", "512Mi");
     public Ports ports = new Ports();
     public Claims claims = new Claims();
@@ -53,6 +52,7 @@ public final class Postgres implements Component {
     @Override
     public Root root() {
         return new Root()
+                .scale(Scale.SINGLE)                                           // what sdk.Workload lifts in Go
                 .readiness(Root.Readiness.tcp("pg"))
                 .upgrade(">=15")
                 .hooks(List.of(

@@ -84,7 +84,10 @@ class Rollout:
 @dataclass
 class Root:
     """x-pack on the root: what the component asks of the system, how it
-    changes versions; a composition's savepoints, hooks, rollout."""
+    changes versions; a composition's savepoints, hooks, rollout. scale —
+    Scale.SINGLE or Scale.REPLICAS — is a fact about the application: what
+    sdk.Workload lifts into x-pack.scale in Go."""
+    scale: str | None = None
     readiness: Readiness | None = None
     peers: dict[str, Peer] | None = None
     requires: dict[str, str] | None = None

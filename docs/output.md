@@ -27,7 +27,7 @@ spec:
   applications:                                # dependency order: zookeeper before kafka
   - name: kafka
     metadata: {labels: {horchestra.io/component: kafka}}
-    scale: {replicas: 3}                       # scale: replicas → platform.replicas; single → no scale
+    scale: {replicas: 3}                       # x-pack.scale: replicas → platform.replicas; single → no scale
     spec:
       image: localhost:5001/images/kafka:3.7.1 # pack.yaml's cr:// item
       command: […]                             # image.json Entrypoint (or x-pack.command)
@@ -65,7 +65,7 @@ spec:
 | field | source |
 |---|---|
 | `name`, `metadata.labels[horchestra.io/component]` | the composition key |
-| `scale.replicas` | `platform.replicas` when `scale` is `replicas` |
+| `scale.replicas` | `platform.replicas` when `x-pack.scale` is `replicas` |
 | `spec.image` | the component's `pack.yaml` (`cr://` item) or `image.ref` |
 | `spec.command`, `spec.args` | `image.json` Entrypoint/Cmd, or `x-pack.command`; then every `arg=` leaf in declaration order |
 | `spec.env` | `env=` leaves (string → `value`, Secret → `secretRef`), then `platform.env` |

@@ -82,7 +82,7 @@ func Run(c Component) ([]Problem, error) {
 	var files []fileAt
 	var fileStack []fileAt
 	var argLeaves, envLeaves, passwordLeaves []string
-	var scale string
+	scale := root.Scale
 	ports := map[string]bool{}
 	insideFile := map[string]string{} // instance ptr → the file subtree it is under
 	computes := map[string]string{}
@@ -139,9 +139,6 @@ func Run(c Component) ([]Problem, error) {
 			if !n.HasConst {
 				add(ptr, "a port is a fact: declare it with const")
 			}
-		}
-		if ptr == "/scale" && n.HasConst {
-			scale, _ = n.Const.(string)
 		}
 		if n.IsForeign() && strings.HasPrefix(n.Ref, packschema.PackScheme) {
 			lib := strings.TrimSuffix(strings.TrimPrefix(n.Ref, packschema.PackScheme), "#")
@@ -275,14 +272,24 @@ func Run(c Component) ([]Problem, error) {
 
 	// 7. readiness names a port; scale is single|replicas; a library has neither
 	if c.IsLibrary {
-		for _, k := range []string{"platform", "ports", "scale"} {
+		for _, k := range []string{"platform", "ports"} {
 			if _, has := c.Schema.Root.Properties[k]; has {
 				add("/"+k, "a library declares %s: it has no workload of its own", k)
 			}
 		}
+		if len(scale) > 0 {
+			add("/x-pack/scale", "a library declares scale: it has no workload of its own")
+		}
 	} else {
-		if len(scale) > 0 && scale != "single" && scale != "replicas" {
-			add("/scale", "scale must be single or replicas, got %q", scale)
+		if n := c.Schema.Root.Properties["scale"]; n != nil && n.HasConst {
+			add("/scale", "scale is x-pack.scale, a fact of the root — not a value; regenerate the schema")
+		}
+		switch scale {
+		case "single", "replicas":
+		case "":
+			add("/x-pack/scale", "a component with a workload declares x-pack.scale: single or replicas")
+		default:
+			add("/x-pack/scale", "scale must be single or replicas, got %q", scale)
 		}
 		switch root.RestartPolicy {
 		case "", "Always", "OnFailure":

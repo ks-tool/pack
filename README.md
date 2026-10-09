@@ -38,9 +38,8 @@ Author a component in Go (`examples/postgres/postgres.go`):
 
 ```go
 type Postgres struct {
+sdk.Workload                  // scale (lifted into x-pack.scale) + platform — the target's schema
 Ports     Ports               `json:"ports"`
-Scale     string              `json:"scale" pack:"const"`
-Platform  packschema.Platform `json:"platform" pack:"ref=urn:pack:platform,default"`
 Claims    Claims              `json:"claims"`
 Database  string              `json:"database" jsonschema:"required"`
 Superuser Superuser           `json:"superuser"`
@@ -52,7 +51,7 @@ Name     string            `json:"name" pack:"default,env=POSTGRES_USER"`
 Password packschema.Secret `json:"password" jsonschema:"required" pack:"env=POSTGRES_PASSWORD"`
 }
 
-func Defaults() Postgres { return Postgres{Ports: Ports{PG: 5432}, Scale: "single", /* … */} }
+func Defaults() Postgres { return Postgres{Workload: sdk.Single("500m", "512Mi"), Ports: Ports{PG: 5432}, /* … */} }
 func (Postgres) PackRoot() packschema.Root { return packschema.Root{Readiness: &packschema.Readiness{TCP: "pg"}} }
 func (Postgres) PackCompute() map[string]string {
 return map[string]string{"/conf/shared_buffers": "string(limits.memory / 1048576 / 4) + 'MB'"}

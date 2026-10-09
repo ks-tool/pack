@@ -33,7 +33,6 @@ class Conf:
 
 @dataclass
 class Postgres(Component):
-    scale: str = const(Scale.SINGLE)                                           # what sdk.Workload embeds in Go
     platform: Platform = default_factory(Platform.sized("500m", "512Mi"))
     ports: Ports = default_factory(Ports)
     claims: Claims = default_factory(Claims)
@@ -46,6 +45,7 @@ class Postgres(Component):
 
     def root(self) -> Root:
         return Root(
+            scale=Scale.SINGLE,                                                # what sdk.Workload lifts in Go
             readiness=Readiness(tcp="pg"),
             upgrade=Upgrade(from_=">=15"),
             hooks=[

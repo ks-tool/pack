@@ -86,7 +86,7 @@ they run once per replica when the `perInstance` file is rendered.
 | `horchestra` | the context below |
 
 `me.service` is `<installation>-<key>`; `me.instances` are
-`<service>-<i>.<service>.<namespace>` for `scale: replicas`, or
+`<service>-<i>.<service>.<namespace>` for `x-pack.scale: replicas`, or
 `<service>.<namespace>` for `single`; `me.ports` are the component's
 `const` ports by name. Names, never addresses: they are stable under any
 network mode, and they are known before anything is scheduled.
@@ -151,7 +151,7 @@ operator's to create ahead of time.
 
 ## What the operator may not do
 
-- override a `const` (a port, a mount path, `scale`) — refused;
+- override a `const` (a port, a mount path) — refused;
 - write a credential as a string — refused;
 - add a key no component provides — refused (`additionalProperties: false`);
 - add an env variable the component itself declares — refused;

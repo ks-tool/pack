@@ -560,7 +560,7 @@ func (r *render) resolve() error {
 		keyDoc, _ := get(r.doc, "/"+key)
 		km, _ := keyDoc.(map[string]any)
 		platform, _ := km["platform"].(map[string]any)
-		if scale, _ := km["scale"].(string); scale == "replicas" {
+		if r.b.Components[r.b.KeyComponent[key]].Root.Scale == "replicas" {
 			n, err := r.ctx.Target.Replicas(key, platform)
 			if err != nil {
 				return fmt.Errorf("%s: %w", key, err)
