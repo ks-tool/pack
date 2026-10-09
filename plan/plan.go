@@ -13,8 +13,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/ks-tool/pack/bundle"
@@ -100,7 +100,7 @@ type Plan struct {
 // new values — then config-only changes are not detected and a warning says so.
 type Input struct {
 	From, To       *bundle.Bundle
-	FromOut, ToOut *render.Output
+	FromOut, ToOut *render.Release
 	Policy         Policy
 }
 
@@ -291,24 +291,26 @@ func change(in Input, key string) (Change, error) {
 		c.Kind = "image"
 	case digestOf(fromComp.SchemaRaw) != digestOf(toComp.SchemaRaw):
 		c.Kind = "schema"
-	case in.FromOut != nil && !sameSecrets(in.FromOut, in.ToOut, key):
+	case in.FromOut != nil && !sameFiles(in.FromOut, in.ToOut, key):
 		c.Kind = "config"
 	}
 	return c, nil
 }
 
-func sameSecrets(a, b *render.Output, key string) bool {
-	names := func(o *render.Output) []string {
-		var out []string
-		for _, s := range o.Secrets {
-			if s.Metadata.Labels[render.LabelComponent] == key {
-				out = append(out, s.Metadata.Name)
+// sameFiles compares what a key's config files hold, not what they are
+// called: a target names them stably, so a name says nothing about a change.
+func sameFiles(a, b *render.Release, key string) bool {
+	files := func(rel *render.Release) ([]render.File, []render.SecretFile) {
+		for _, u := range rel.Units {
+			if u.Key == key {
+				return u.Files, u.SecretFiles
 			}
 		}
-		sort.Strings(out)
-		return out
+		return nil, nil
 	}
-	return strings.Join(names(a), ",") == strings.Join(names(b), ",")
+	af, as := files(a)
+	bf, bs := files(b)
+	return reflect.DeepEqual(af, bf) && reflect.DeepEqual(as, bs)
 }
 
 func digestOf(b []byte) string {

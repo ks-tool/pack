@@ -15,15 +15,15 @@ func TestProvision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := Context{Installation: "dev", Namespace: "apps"}
+	ctx := Context{Installation: "dev", Names: testNames{"dev", "apps"}}
 
 	// generate: a Secret per pointer, the reference written into the values, the render sees it
 	v := Values{Values: map[string]any{"postgres": map[string]any{"database": "app"}}}
-	creds, err := Provision(b, &v, ctx, "generate", []string{"/postgres/superuser/password"})
+	creds, err := Provision(b, &v, ctx.Installation, "generate", []string{"/postgres/superuser/password"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(creds) != 1 || creds[0].Metadata.Name != "dev-postgres-superuser-password" || len(creds[0].StringData["password"]) < 20 {
+	if len(creds) != 1 || creds[0].Name != "dev-postgres-superuser-password" || creds[0].Leaf != "password" || creds[0].Key != "postgres" || len(creds[0].Value) < 20 {
 		t.Fatalf("credential: %+v", creds)
 	}
 	out, err := Render(b, v, ctx)
@@ -31,45 +31,45 @@ func TestProvision(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
-	for _, e := range out.Set.Spec.Applications[0].Spec.Env {
-		if e.Name == "POSTGRES_PASSWORD" && e.SecretRef != nil && e.SecretRef.Name == "dev-postgres-superuser-password" {
+	for _, e := range out.Units[0].Env {
+		if e.Name == "POSTGRES_PASSWORD" && e.Secret != nil && e.Secret.Name == "dev-postgres-superuser-password" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("the provisioned reference must reach env: %+v", out.Set.Spec.Applications[0].Spec.Env)
+		t.Errorf("the provisioned reference must reach env: %+v", out.Units[0].Env)
 	}
 
 	// file provider
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "postgres.superuser.password"), []byte("from-file\n"), 0o600)
 	v = Values{Values: map[string]any{"postgres": map[string]any{"database": "app"}}}
-	creds, err = Provision(b, &v, ctx, Provider("file:"+dir), []string{"postgres/superuser/password"})
-	if err != nil || creds[0].StringData["password"] != "from-file" {
+	creds, err = Provision(b, &v, ctx.Installation, Provider("file:"+dir), []string{"postgres/superuser/password"})
+	if err != nil || creds[0].Value != "from-file" {
 		t.Fatalf("file provider: %v %+v", err, creds)
 	}
 
 	// env provider
 	t.Setenv("PACK_SECRET_POSTGRES_SUPERUSER_PASSWORD", "from-env")
 	v = Values{Values: map[string]any{"postgres": map[string]any{"database": "app"}}}
-	creds, err = Provision(b, &v, ctx, "env", []string{"/postgres/superuser/password"})
-	if err != nil || creds[0].StringData["password"] != "from-env" {
+	creds, err = Provision(b, &v, ctx.Installation, "env", []string{"/postgres/superuser/password"})
+	if err != nil || creds[0].Value != "from-env" {
 		t.Fatalf("env provider: %v %+v", err, creds)
 	}
 
 	// refusals: not a password; already referenced; unknown provider; --secret without a provider
 	v = Values{}
-	if _, err := Provision(b, &v, ctx, "generate", []string{"/postgres/database"}); err == nil || !strings.Contains(err.Error(), "not a password") {
+	if _, err := Provision(b, &v, ctx.Installation, "generate", []string{"/postgres/database"}); err == nil || !strings.Contains(err.Error(), "not a password") {
 		t.Errorf("a non-password leaf must be refused: %v", err)
 	}
 	v = Values{Values: map[string]any{"postgres": map[string]any{"superuser": map[string]any{"password": map[string]any{"secretRef": map[string]any{"name": "x", "key": "k"}}}}}}
-	if _, err := Provision(b, &v, ctx, "generate", []string{"/postgres/superuser/password"}); err == nil {
+	if _, err := Provision(b, &v, ctx.Installation, "generate", []string{"/postgres/superuser/password"}); err == nil {
 		t.Error("a leaf the operator already referenced must be refused")
 	}
-	if _, err := Provision(b, &v, ctx, "vault", nil); err == nil {
+	if _, err := Provision(b, &v, ctx.Installation, "vault", nil); err == nil {
 		t.Error("an unknown provider must be refused")
 	}
-	if _, err := Provision(b, &v, ctx, "", []string{"/x"}); err == nil {
+	if _, err := Provision(b, &v, ctx.Installation, "", []string{"/x"}); err == nil {
 		t.Error("--secret without a provider must be refused")
 	}
 }

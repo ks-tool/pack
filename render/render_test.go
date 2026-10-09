@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,10 +13,28 @@ import (
 	"github.com/ks-tool/pack/bundle"
 )
 
-// The adh composition rendered with its fixture values is the golden output
-// of the tool: applicationset.yaml and every secret under
-// examples/adh/testdata/expected. UPDATE_GOLDEN=1 rewrites them.
-func TestRenderADH_Golden(t *testing.T) {
+// testNames are horchestra's names, spelled out here: render cannot import
+// a target, and the properties below do not depend on which one it is.
+type testNames struct{ installation, namespace string }
+
+func (n testNames) Service(key string) string         { return n.installation + "-" + key }
+func (n testNames) Instance(key string, i int) string { return fmt.Sprintf("%s-%d", n.Service(key), i) }
+func (n testNames) Namespace() string                 { return n.namespace }
+func (n testNames) Address(key string, i int) string {
+	if i < 0 {
+		return n.Service(key) + "." + n.namespace
+	}
+	return fmt.Sprintf("%s.%s.%s", n.Instance(key, i), n.Service(key), n.namespace)
+}
+
+func ctxOf(installation, namespace string) Context {
+	return Context{Installation: installation, Names: testNames{installation, namespace}}
+}
+
+// The adh composition with its fixture values: the order, the peers and the
+// formulas — what any target gets. Its golden output is horchestra's, in
+// target/horchestra.
+func TestRenderADH(t *testing.T) {
 	root := filepath.Join("..", "examples")
 	b, err := bundle.Load(filepath.Join(root, "adh"))
 	if err != nil {
@@ -29,47 +48,10 @@ func TestRenderADH_Golden(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &v); err != nil {
 		t.Fatal(err)
 	}
-	out, err := Render(b, v, Context{Installation: "prod", Namespace: "data"})
+	out, err := Render(b, v, ctxOf("prod", "data"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := filepath.Join(root, "adh", "testdata", "expected")
-	files := map[string][]byte{}
-	files["applicationset.yaml"], _ = yaml.Marshal(out.Set)
-	for _, s := range out.Secrets {
-		files[filepath.Join("secrets", s.Metadata.Name+".yaml")], _ = yaml.Marshal(s)
-	}
-	files["report.yaml"], _ = yaml.Marshal(out.Report)
-	if len(os.Getenv("UPDATE_GOLDEN")) > 0 {
-		os.RemoveAll(expected)
-		for name, data := range files {
-			os.MkdirAll(filepath.Dir(filepath.Join(expected, name)), 0o755)
-			if err := os.WriteFile(filepath.Join(expected, name), data, 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	for name, data := range files {
-		want, err := os.ReadFile(filepath.Join(expected, name))
-		if err != nil {
-			t.Fatalf("%s: %v — UPDATE_GOLDEN=1 to write it", name, err)
-		}
-		if string(want) != string(data) {
-			t.Errorf("%s differs from golden:\n%s", name, data)
-		}
-	}
-	// nothing unexpected on disk
-	filepath.Walk(expected, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		rel, _ := filepath.Rel(expected, path)
-		if _, ok := files[rel]; !ok {
-			t.Errorf("stale golden file %s", rel)
-		}
-		return nil
-	})
-
 	// the properties of the render worth stating
 	order := out.Report.Order
 	if len(order) != 4 || order[0] != "zookeeper" || order[1] != "kafka" {
@@ -90,7 +72,7 @@ func TestRender_RefusesPlaintextPasswordAndAmbiguousPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := Values{Values: map[string]any{"kafka": map[string]any{"jaas": map[string]any{"password": "plaintext"}}}}
-	if _, err := Render(b, v, Context{Installation: "x", Namespace: "n"}); err == nil {
+	if _, err := Render(b, v, ctxOf("x", "n")); err == nil {
 		t.Fatal("a plaintext password must be refused")
 	}
 }
@@ -111,7 +93,7 @@ func TestRender_SubsetPullsInRequiredPeersOnly(t *testing.T) {
 			"jaas":     map[string]any{"password": map[string]any{"secretRef": map[string]any{"name": "kafka-sasl", "key": "password"}}},
 		},
 	}}
-	out, err := Render(b, v, Context{Installation: "solo", Namespace: "data"})
+	out, err := Render(b, v, ctxOf("solo", "data"))
 	if err != nil {
 		t.Fatalf("render a kafka-only subset: %v", err)
 	}
@@ -123,11 +105,11 @@ func TestRender_SubsetPullsInRequiredPeersOnly(t *testing.T) {
 		t.Errorf("kafka's zk role must still auto-bind to zookeeper in a subset render: %v", out.Report.Peers)
 	}
 	names := map[string]bool{}
-	for _, spec := range out.Set.Spec.Applications {
-		names[spec.Name] = true
+	for _, u := range out.Units {
+		names[u.Key] = true
 	}
 	if !names["zookeeper"] || !names["kafka"] {
-		t.Errorf("the set is missing kafka or zookeeper: %v", names)
+		t.Errorf("the release is missing kafka or zookeeper: %v", names)
 	}
 	if names["ranger-db"] || names["hive-db"] {
 		t.Errorf("a kafka-only install must not render postgres children nothing in its closure needs: %v", names)
@@ -152,7 +134,7 @@ func TestRender_SkipExcludesAKeyNothingRequires(t *testing.T) {
 		},
 		Skip: []string{"ranger-db"},
 	}
-	out, err := Render(b, v, Context{Installation: "solo", Namespace: "data"})
+	out, err := Render(b, v, ctxOf("solo", "data"))
 	if err != nil {
 		t.Fatalf("skip a dependency-free key: %v", err)
 	}
@@ -178,7 +160,7 @@ func TestRender_SkipRefusesADependency(t *testing.T) {
 		},
 		Skip: []string{"zookeeper"},
 	}
-	_, err = Render(b, v, Context{Installation: "solo", Namespace: "data"})
+	_, err = Render(b, v, ctxOf("solo", "data"))
 	if err == nil {
 		t.Fatal("kafka still requires zookeeper: skipping it must be refused")
 	}
@@ -204,7 +186,7 @@ func TestRender_SkipBothADependencyAndItsOnlyDependent(t *testing.T) {
 		},
 		Skip: []string{"kafka", "zookeeper"},
 	}
-	out, err := Render(b, v, Context{Installation: "solo", Namespace: "data"})
+	out, err := Render(b, v, ctxOf("solo", "data"))
 	if err != nil {
 		t.Fatalf("skip a key together with its only dependent: %v", err)
 	}
@@ -228,7 +210,7 @@ func TestRender_NoSelectionInstallsEverything(t *testing.T) {
 	// "common" is not a composition key, so this values document names ZERO
 	// keys — the fallback, not the closure.
 	v := Values{Values: map[string]any{"common": map[string]any{"realm": "CORP.EXAMPLE"}}}
-	_, err = Render(b, v, Context{Installation: "full", Namespace: "data"})
+	_, err = Render(b, v, ctxOf("full", "data"))
 	if err == nil {
 		t.Fatal("kafka's jaas.password has no default: an all-keys render must still fail validation")
 	}

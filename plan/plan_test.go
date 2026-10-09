@@ -12,6 +12,7 @@ import (
 	"github.com/ks-tool/pack/bundle"
 	"github.com/ks-tool/pack/render"
 	"github.com/ks-tool/pack/sdk/packschema"
+	"github.com/ks-tool/pack/target/horchestra"
 )
 
 // previous copies the examples into a temp tree and rewinds versions: postgres
@@ -65,13 +66,13 @@ func copyDir(src, dst string) error {
 	})
 }
 
-func load(t *testing.T, dir string, v render.Values) (*bundle.Bundle, *render.Output) {
+func load(t *testing.T, dir string, v render.Values) (*bundle.Bundle, *render.Release) {
 	t.Helper()
 	b, err := bundle.Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := render.Render(b, v, render.Context{Installation: "prod", Namespace: "data"})
+	out, err := render.Render(b, v, render.Context{Installation: "prod", Names: horchestra.Context{Installation: "prod", Namespace: "data"}.Names()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,5 +290,27 @@ func TestSelectHooks_AddedKeyInstalls(t *testing.T) {
 	pre, post = selectHooks(comp, c, c.Direction, p)
 	if len(pre) != 1 || pre[0].Name != "migrate" || len(post) != 0 {
 		t.Errorf("upgrade: pre %v post %v", pre, post)
+	}
+}
+
+// The same version with only a config value changed: the target names its
+// config objects stably, so the change is in the files, never in a name —
+// kafka is "config", everything else "none".
+func TestPlan_ConfigOnlyChange(t *testing.T) {
+	adh := filepath.Join("..", "examples", "adh")
+	fromB, fromOut := load(t, adh, values(t))
+	v := values(t)
+	v.Values["kafka"].(map[string]any)["conf"] = map[string]any{"min.insync.replicas": 3}
+	toB, toOut := load(t, adh, v)
+	p, err := Build(Input{From: fromB, To: toB, FromOut: fromOut, ToOut: toOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]string{}
+	for _, c := range p.Changes {
+		kinds[c.Key] = c.Kind
+	}
+	if kinds["kafka"] != "config" || kinds["zookeeper"] != "none" || kinds["ranger-db"] != "none" {
+		t.Errorf("changes: %v", kinds)
 	}
 }

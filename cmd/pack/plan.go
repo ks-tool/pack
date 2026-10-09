@@ -12,6 +12,7 @@ import (
 	"github.com/ks-tool/pack/bundle"
 	"github.com/ks-tool/pack/plan"
 	"github.com/ks-tool/pack/render"
+	"github.com/ks-tool/pack/target/horchestra"
 )
 
 func runPlan(args []string) error {
@@ -45,7 +46,7 @@ func runPlan(args []string) error {
 		}
 	}
 	v.Skip = append(v.Skip, skip...)
-	ctx := render.Context{Installation: *name, Namespace: *namespace}
+	ctx := render.Context{Installation: *name, Names: horchestra.Context{Installation: *name, Namespace: *namespace}.Names()}
 	toB, err := openPack(*to, *plainHTTP)
 	if err != nil {
 		return fmt.Errorf("--to: %w", err)
@@ -55,7 +56,7 @@ func runPlan(args []string) error {
 		return fmt.Errorf("--to: %w", err)
 	}
 	var fromB *bundle.Bundle
-	var fromOut *render.Output
+	var fromOut *render.Release
 	if len(*from) > 0 {
 		fromB, err = openPack(*from, *plainHTTP)
 		if err != nil {

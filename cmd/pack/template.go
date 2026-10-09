@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/ks-tool/pack/render"
+	"github.com/ks-tool/pack/target/horchestra"
 )
 
 type multiFlag []string
@@ -58,17 +59,17 @@ func runTemplate(args []string) error {
 	}
 	v.Skip = append(v.Skip, skip...)
 
-	ctx := render.Context{Installation: *name, Namespace: *namespace}
-	credentials, err := render.Provision(b, &v, ctx, render.Provider(*provider), secrets)
+	ctx := horchestra.Context{Installation: *name, Namespace: *namespace}
+	credentials, err := render.Provision(b, &v, ctx.Installation, render.Provider(*provider), secrets)
 	if err != nil {
 		return err
 	}
 
-	out, err := render.Render(b, v, ctx)
+	out, err := horchestra.Render(b, v, ctx)
 	if err != nil {
 		return err
 	}
-	out.Secrets = append(credentials, out.Secrets...)
+	out.Secrets = append(horchestra.Credentials(credentials, ctx), out.Secrets...)
 
 	setYAML, err := yaml.Marshal(out.Set)
 	if err != nil {

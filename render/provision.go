@@ -23,12 +23,22 @@ import (
 //	file:<dir>    <dir>/<pointer with dots>, e.g. <dir>/kafka.jaas.password
 type Provider string
 
-// Provision creates a Secret for every listed pointer — an explicit allowlist:
-// only these leaves are read from the provider, anything else is untouched —
-// and writes the reference into the values, so that the render sees a
-// reference like any other. Each pointer must be a password leaf of the
-// composition's schema the operator did not already fill.
-func Provision(b *bundle.Bundle, v *Values, ctx Context, provider Provider, pointers []string) ([]Secret, error) {
+// Credential is one value the tool provisioned: the secret a target creates
+// for it, and the key of the leaf. Key is the system key it belongs to.
+type Credential struct {
+	Name  string
+	Leaf  string
+	Value string
+	Key   string
+}
+
+// Provision reads a credential for every listed pointer — an explicit
+// allowlist: only these leaves are read from the provider, anything else is
+// untouched — and writes the reference into the values, so that the render
+// sees a reference like any other; the target creates the secrets. Each
+// pointer must be a password leaf of the composition's schema the operator
+// did not already fill.
+func Provision(b *bundle.Bundle, v *Values, installation string, provider Provider, pointers []string) ([]Credential, error) {
 	if len(provider) == 0 {
 		if len(pointers) > 0 {
 			return nil, fmt.Errorf("--secret needs --secretProvider")
@@ -47,7 +57,7 @@ func Provision(b *bundle.Bundle, v *Values, ctx Context, provider Provider, poin
 	if v.Values == nil {
 		v.Values = map[string]any{}
 	}
-	var out []Secret
+	var out []Credential
 	sort.Strings(pointers)
 	for _, ptr := range pointers {
 		if !strings.HasPrefix(ptr, "/") {
@@ -65,19 +75,13 @@ func Provision(b *bundle.Bundle, v *Values, ctx Context, provider Provider, poin
 		}
 		segs := schema.Split(ptr)
 		key := segs[0]
-		name := ctx.Installation + "-" + strings.Join(segs, "-")
+		name := installation + "-" + strings.Join(segs, "-")
 		leaf := segs[len(segs)-1]
 		value, err := fetch(kind, arg, ptr)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Secret{
-			APIVersion: "horchestra.io/v1", Kind: "Secret",
-			Metadata: ObjectMeta{Name: name, Namespace: ctx.Namespace,
-				Labels: map[string]string{LabelInstallation: ctx.Installation, LabelComponent: key}},
-			Type:       "Opaque",
-			StringData: map[string]string{leaf: value},
-		})
+		out = append(out, Credential{Name: name, Leaf: leaf, Value: value, Key: key})
 		if err := set(v.Values, ptr, map[string]any{"secretRef": map[string]any{"name": name, "key": leaf}}); err != nil {
 			return nil, err
 		}

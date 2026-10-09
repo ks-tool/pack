@@ -16,11 +16,28 @@ import (
 	"github.com/ks-tool/pack/sdk/schema"
 )
 
-// Context is what the bundle cannot know: where and under what name it is
-// being installed.
+// Context is what the bundle cannot know: under what name it is being
+// installed, and how the target it is installed on names what it runs.
 type Context struct {
 	Installation string
-	Namespace    string
+	Names        Names
+}
+
+// Names is the one part of a target the render sees: how it names and
+// reaches what it runs. Formulas read it as me and peers (service,
+// instances) and as horchestra.service, horchestra.instance and
+// horchestra.namespace — a pack is rendered once per target, never for
+// "any" target, because a neighbour's address is part of a config file.
+type Names interface {
+	// Service is the stable name of a key as a whole.
+	Service(key string) string
+	// Instance is the name of replica i of a key.
+	Instance(key string, i int) string
+	// Address is how a neighbour reaches replica i of a key; i < 0 is the key
+	// as one service, which is all a key that does not scale has.
+	Address(key string, i int) string
+	// Namespace is the scope the target installs into; empty where it has none.
+	Namespace() string
 }
 
 // Values is the operator's document.
@@ -63,17 +80,21 @@ type render struct {
 	report Report
 }
 
-// Render runs the link: configure → mutate → validate → convert.
-func Render(b *bundle.Bundle, v Values, ctx Context) (*Output, error) {
+// Render runs the link: configure → mutate → validate → convert, and stops at
+// the target-neutral Release a target turns into its own objects.
+func Render(b *bundle.Bundle, v Values, ctx Context) (*Release, error) {
 	if len(ctx.Installation) == 0 {
 		return nil, errors.New("an installation name is required (--name)")
+	}
+	if ctx.Names == nil {
+		return nil, errors.New("a target's Names is required: the render cannot address a neighbour without one")
 	}
 	env, err := compute.Env()
 	if err != nil {
 		return nil, err
 	}
 	r := &render{b: b, ctx: ctx, env: env, userSet: map[string]bool{}, peers: map[string]map[string]string{},
-		report: Report{Installation: ctx.Installation, Namespace: ctx.Namespace, Pack: b.Name, Computed: map[string]any{}, Secrets: map[string][]string{}}}
+		report: Report{Installation: ctx.Installation, Namespace: ctx.Names.Namespace(), Pack: b.Name, Computed: map[string]any{}}}
 	if err := r.configure(v); err != nil {
 		return nil, err
 	}
@@ -506,8 +527,6 @@ func orEmpty(m any) any {
 	return m
 }
 
-func (r *render) service(key string) string { return r.ctx.Installation + "-" + key }
-
 func (r *render) replicas(key string) int {
 	keyDoc, _ := get(r.doc, "/"+key)
 	km, _ := keyDoc.(map[string]any)
@@ -533,14 +552,14 @@ func (r *render) replicas(key string) int {
 
 // me describes a key by names only: service, instances, replicas, ports.
 func (r *render) me(key string) map[string]any {
-	svc := r.service(key)
+	svc := r.ctx.Names.Service(key)
 	n := r.replicas(key)
 	var instances []any
 	if n == 0 {
-		instances = []any{svc + "." + r.ctx.Namespace}
+		instances = []any{r.ctx.Names.Address(key, -1)}
 	} else {
 		for i := range n {
-			instances = append(instances, fmt.Sprintf("%s-%d.%s.%s", svc, i, svc, r.ctx.Namespace))
+			instances = append(instances, r.ctx.Names.Address(key, i))
 		}
 	}
 	ports := map[string]any{}
@@ -563,21 +582,26 @@ func (r *render) peerVars(key string) map[string]any {
 
 func (r *render) horchestra(key string, instance map[string]any) map[string]any {
 	h := map[string]any{
-		"namespace":    r.ctx.Namespace,
+		"namespace":    r.ctx.Names.Namespace(),
 		"installation": r.ctx.Installation,
 		"component":    key,
-		"service":      r.service(key),
+		"service":      r.ctx.Names.Service(key),
 		"replicas":     max(r.replicas(key), 1),
 	}
 	maps.Copy(h, instance)
 	return h
 }
 
+// instanceVars are the per-replica fields of the horchestra context.
+func (r *render) instanceVars(key string, i int) map[string]any {
+	return map[string]any{"instance": r.ctx.Names.Instance(key, i), "index": i, "ordinal": i + 1}
+}
+
 // instanceDoc re-evaluates the per-replica formulas of a key for replica i,
 // returning a copy of the key's subtree with them applied.
 func (r *render) instanceDoc(key string, i int) (map[string]any, error) {
 	copyDoc := schema.DeepCopy(r.doc).(map[string]any)
-	instance := map[string]any{"instance": fmt.Sprintf("%s-%d", r.service(key), i), "index": i, "ordinal": i + 1}
+	instance := r.instanceVars(key, i)
 	for idx := range r.formulas {
 		f := &r.formulas[idx]
 		if !f.instance || f.key != key || r.userSet[f.ptr] {

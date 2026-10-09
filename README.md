@@ -113,7 +113,8 @@ pack/
   emit/                file emitters
   bundle/              loading a composition or component from directories or a registry
   registry/            the tool's own OCI distribution reader (manifests, schemas, templates, image configs — no layers)
-  render/              configure → mutate → validate → convert
+  render/              the core: configure → mutate → validate → a target-neutral Release (units, rendered files)
+  target/horchestra/   the horchestra target: a Release → ApplicationSet + config Secrets; its names for formulas
   plan/                the saga: a first installation, or the upgrade between two versions
   docs/                this documentation
 ```
@@ -137,7 +138,7 @@ Go 1.26 only (`GOTOOLCHAIN=go1.26.5`); one module, no `go.work`:
 ```sh
 GOTOOLCHAIN=go1.26.5 go test ./...
 GOTOOLCHAIN=go1.26.5 go generate ./examples/...   # after editing an example
-UPDATE_GOLDEN=1 GOTOOLCHAIN=go1.26.5 go test ./render/   # after a deliberate output change
+UPDATE_GOLDEN=1 GOTOOLCHAIN=go1.26.5 go test ./target/... ./plan/   # after a deliberate output change
 ```
 
 Tests fail when a committed `schema.json` drifts from its Go source, and when the rendered output of `examples/adh`

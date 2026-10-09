@@ -1,9 +1,11 @@
-// Package render is the link from a bundle and a values document to what
-// horchestra executes: an ApplicationSet and the Secrets holding its config
+// Package horchestra is the horchestra target: a render.Release becomes what
+// horchestra executes — an ApplicationSet and the Secrets holding its config
 // files. The output types are the contract of spec §6 — a superset of
 // horchestra's own where phase 2 adds fields (merge/substitute on a secret
 // mount, readiness, ${horchestra.index} in an item key).
-package render
+package horchestra
+
+import "github.com/ks-tool/pack/render"
 
 // ApplicationSet is the set as the tool writes it.
 type ApplicationSet struct {
@@ -161,20 +163,9 @@ type Secret struct {
 	Data       map[string]string `json:"data,omitempty"`
 }
 
-// Report is what came from where — for the operator's eyes.
-type Report struct {
-	Installation string                       `json:"installation"`
-	Namespace    string                       `json:"namespace"`
-	Pack         string                       `json:"pack"`
-	Order        []string                     `json:"order"`
-	Peers        map[string]map[string]string `json:"peers,omitempty"`
-	Computed     map[string]any               `json:"computed,omitempty"` // instance pointer → value the mutator wrote
-	Secrets      map[string][]string          `json:"secrets,omitempty"`  // secret name → files
-}
-
-// Output is everything one render produced.
+// Output is everything one render produced for horchestra.
 type Output struct {
 	Set     ApplicationSet
 	Secrets []Secret
-	Report  Report
+	Report  render.Report
 }
