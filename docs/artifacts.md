@@ -34,6 +34,17 @@ become one manifest each, tagged by their `type`. The image must already be
 in the same registry — the item is a cross-repository mount, and its
 manifest and blobs are copied into the artifact's repository.
 
+**No external registries.** Every image a pack uses is loaded into the
+registry the pack is published to beforehand, and its `oci://` item names it
+there: the item's host is the artifact's own. oci-packer refuses an item on
+another registry's host, or in a local OCI layout, before it builds anything
+(the mount is cross-repository within one registry), so an image from
+outside is copied in first:
+
+```sh
+oci-packer copy oci://docker.io/library/postgres:18-alpine oci://registry.example/images/postgres:18-alpine
+```
+
 The tool reads the same file for two things: the component's **name and
 version** (the annotations) and the **image reference** for `spec.image`
 (the `oci://` item, scheme stripped). Without a `pack.yaml`, `image.ref`
