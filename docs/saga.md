@@ -1,8 +1,9 @@
 # Installs and upgrades: hooks, savepoints, rollback
 
-> `pack plan` derives and prints the plan (phase 1); executing it needs a
-> cluster and is phase 2. This page is the contract the hooks in a component
-> and the savepoints in a composition are written against.
+> `pack plan` derives and prints the plan; `pack apply` drives it on a
+> target that performs steps (see [Execution](#execution)). This page is the
+> contract the hooks in a component and the savepoints in a composition are
+> written against.
 
 An installation or an upgrade is a **saga**: a sequence of steps, each an
 object in horchestra with a status, with an automatic rollback to a point
@@ -186,11 +187,41 @@ what was undone and where it stopped; `--resume` retries the unit from its
 savepoint; `pack rollback` undoes committed units by hand with the reverse
 plan. A failed compensation is the worst state and is reported as such.
 
-## Execution (phase 2)
+## Execution
 
-Every step is an object in horchestra: `stop` is the set without the
-component (PVs stay); a `hook` is a one-shot `Application` with the
-component's volumes; `apply` is the set's new revision; `wait` is the
-children's readiness. Progress lives in an annotation on the set, so a
-crashed tool resumes from any machine by reading the object of the current
-step. The plan is recomputed from the inputs and never stored.
+`pack apply` performs and controls the saga; the target only carries out
+each step in its own system, through its provider (`proto/provider.proto`).
+Postgres on Kubernetes: the provider makes a StatefulSet and a Secret of the
+step and applies them. Postgres on a VM: it writes the config files to the
+host and installs packages, or starts the image with podman, docker or
+sandbox. A provider that can do this declares the `execute` capability; a
+target without it renders (`pack template`) and refuses `apply`.
+
+1. **What is installed** comes from the target: `ReadInstalled` returns the
+   record pack keeps there — where the installed version came from, its
+   version and values, and a saga under way or the last one that failed.
+   pack has no state of its own.
+2. pack renders the installed version with its recorded values and the new
+   one with the operator's, and derives the plan — the same as `pack plan`.
+3. **Every step** goes to the provider as `Execute`: the step (stop, hook,
+   apply, wait, remove), the key's unit in the new version and in the
+   installed one, for a hook the image and command, the credentials
+   provisioned for the key. The provider streams what it does; the last
+   event says whether the step succeeded. A hook's `timeout` bounds it.
+4. After every step pack writes the record (`WriteInstalled`), so a saga
+   cut short is visible to whoever looks next.
+5. **A failed step** rolls its unit back, in reverse plan order, until the
+   rollback policy stops it: a hook that ran is compensated (one without
+   `compensate` is left as it is); an `apply` is undone by applying the
+   previous unit, or by removing a key the saga added; a `remove` by
+   applying the previous unit. The failed step itself counts as performed
+   if it was an `apply` or a `remove` — it may have half-happened — and
+   never if it was a hook. Units behind a savepoint stay.
+6. The record says `installed` with the new version, or `failed` with the
+   step, the error and what was undone. A saga that did not finish stops
+   the next `apply` until the operator, having looked at the target,
+   passes `--force` to plan from the recorded version.
+
+Not yet: running the `preDowngrade`/`postDowngrade` hooks while rolling an
+`apply` back (the previous unit is applied as it is), `--resume` from the
+last savepoint, and `pack rollback` of committed units.

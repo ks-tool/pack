@@ -3,12 +3,14 @@ package provider
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"strconv"
 
 	"github.com/ks-tool/pack/provider/providerpb"
 	"github.com/ks-tool/pack/render"
 	"github.com/ks-tool/pack/sdk/packschema"
+	"github.com/ks-tool/pack/target"
 )
 
 // encode writes a free-form document as JSON; nil stays empty.
@@ -276,4 +278,38 @@ func credentialsFrom(in []*providerpb.Credential) []render.Credential {
 		out = append(out, render.Credential{Name: c.Name, Leaf: c.Leaf, Value: c.Value, Key: c.Key})
 	}
 	return out
+}
+
+func stepTo(st target.Step) (*providerpb.ExecuteRequest, error) {
+	unit, err := unitTo(st.Unit)
+	if err != nil {
+		return nil, err
+	}
+	prev, err := unitTo(st.Previous)
+	if err != nil {
+		return nil, err
+	}
+	return &providerpb.ExecuteRequest{
+		Step: &providerpb.Step{N: int64(st.N), Key: st.Key, Kind: st.Kind, Name: st.Name, Phase: st.Phase,
+			Timeout: st.Timeout, Exclusive: st.Exclusive, Image: st.Image, Command: st.Command, Rollback: st.Rollback},
+		Unit: unit, Previous: prev, Credentials: credentialsTo(st.Credentials),
+	}, nil
+}
+
+func stepFrom(req *providerpb.ExecuteRequest) (target.Step, error) {
+	s := req.Step
+	if s == nil {
+		return target.Step{}, errors.New("no step")
+	}
+	st := target.Step{N: int(s.N), Key: s.Key, Kind: s.Kind, Name: s.Name, Phase: s.Phase, Timeout: s.Timeout,
+		Exclusive: s.Exclusive, Image: s.Image, Command: s.Command, Rollback: s.Rollback,
+		Credentials: credentialsFrom(req.Credentials)}
+	var err error
+	if st.Unit, err = unitFrom(req.Unit); err != nil {
+		return st, err
+	}
+	if st.Previous, err = unitFrom(req.Previous); err != nil {
+		return st, err
+	}
+	return st, nil
 }

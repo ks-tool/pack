@@ -6,6 +6,7 @@
 package target
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -31,6 +32,47 @@ type Installation interface {
 	// Convert turns a release, and the credentials provisioned for it, into
 	// the target's objects.
 	Convert(rel *render.Release, credentials []render.Credential) (*Output, error)
+}
+
+// CapExecute: the target performs saga steps and keeps the installation's
+// record — its installations are Executors.
+const CapExecute = "execute"
+
+// Capable is a target that says what it can do beyond rendering.
+type Capable interface {
+	Capabilities() []string
+}
+
+// Executor is an installation that performs the steps of a saga pack drives,
+// and keeps pack's record of the installation in the target's own system.
+type Executor interface {
+	// ReadInstalled returns the record as pack last wrote it.
+	ReadInstalled() (record []byte, exists bool, err error)
+	// WriteInstalled keeps the record verbatim.
+	WriteInstalled(record []byte) error
+	// Execute performs one step, telling events what it does; nil — done.
+	Execute(ctx context.Context, step Step, events func(string)) error
+}
+
+// Step is one step of a saga as a target performs it: the plan's step, and
+// what it acts on — the key's unit in the version being installed and in the
+// installed one, the credentials provisioned for the key.
+type Step struct {
+	N         int
+	Key       string
+	Kind      string // stop | hook | apply | wait | remove
+	Name      string // a hook's name
+	Phase     string
+	Timeout   string
+	Exclusive bool
+	Image     string   // a hook's image
+	Command   []string // a hook's command
+	// Rollback: the step undoes an earlier one — an apply of Previous, a
+	// remove of a key that was added, a hook's compensation.
+	Rollback    bool
+	Unit        *render.Unit
+	Previous    *render.Unit
+	Credentials []render.Credential
 }
 
 // Settings are a target's own words, key=value.

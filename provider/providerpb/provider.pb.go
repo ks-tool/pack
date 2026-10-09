@@ -4,10 +4,12 @@
 // 	protoc        v6.33.4
 // source: provider.proto
 
-// Provider is the seam between pack and a target — horchestra, Kubernetes, VMs.
-// pack knows no target: it renders a pack to a target-neutral Release, and a
-// provider, a program of its own, says what a key's platform means on its
-// system and turns the release into the system's objects.
+// Provider is the seam between pack and a target — Kubernetes, VMs, horchestra.
+// pack knows no target: it renders a pack to a target-neutral Release, plans
+// the saga and drives it step by step; a provider, a program of its own, says
+// what a key's platform means on its system and turns each request of pack
+// into the system's own data and actions — a StatefulSet and a Secret applied
+// to a cluster, config files copied to a host and an image started there.
 //
 // pack starts the provider binary (pack-provider-<target>), gives it a unix
 // socket in a private directory (PACK_PROVIDER_SOCKET) and its stdin — EOF on
@@ -81,9 +83,12 @@ func (x *HandshakeRequest) GetProtocol() string {
 }
 
 type HandshakeResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Protocol      string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Protocol string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	Target   string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// capabilities the target has: "execute" — it performs saga steps and
+	// keeps the installation's record (ReadInstalled, WriteInstalled, Execute).
+	Capabilities  []string `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -130,6 +135,13 @@ func (x *HandshakeResponse) GetTarget() string {
 		return x.Target
 	}
 	return ""
+}
+
+func (x *HandshakeResponse) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
 }
 
 type ConfigureRequest struct {
@@ -756,6 +768,425 @@ func (x *Credential) GetKey() string {
 	return ""
 }
 
+type ReadInstalledRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadInstalledRequest) Reset() {
+	*x = ReadInstalledRequest{}
+	mi := &file_provider_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadInstalledRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadInstalledRequest) ProtoMessage() {}
+
+func (x *ReadInstalledRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadInstalledRequest.ProtoReflect.Descriptor instead.
+func (*ReadInstalledRequest) Descriptor() ([]byte, []int) {
+	return file_provider_proto_rawDescGZIP(), []int{13}
+}
+
+type ReadInstalledResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Exists        bool                   `protobuf:"varint,1,opt,name=exists,proto3" json:"exists,omitempty"`
+	Record        []byte                 `protobuf:"bytes,2,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadInstalledResponse) Reset() {
+	*x = ReadInstalledResponse{}
+	mi := &file_provider_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadInstalledResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadInstalledResponse) ProtoMessage() {}
+
+func (x *ReadInstalledResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadInstalledResponse.ProtoReflect.Descriptor instead.
+func (*ReadInstalledResponse) Descriptor() ([]byte, []int) {
+	return file_provider_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ReadInstalledResponse) GetExists() bool {
+	if x != nil {
+		return x.Exists
+	}
+	return false
+}
+
+func (x *ReadInstalledResponse) GetRecord() []byte {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+type WriteInstalledRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Record        []byte                 `protobuf:"bytes,1,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteInstalledRequest) Reset() {
+	*x = WriteInstalledRequest{}
+	mi := &file_provider_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteInstalledRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteInstalledRequest) ProtoMessage() {}
+
+func (x *WriteInstalledRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteInstalledRequest.ProtoReflect.Descriptor instead.
+func (*WriteInstalledRequest) Descriptor() ([]byte, []int) {
+	return file_provider_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *WriteInstalledRequest) GetRecord() []byte {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+type WriteInstalledResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteInstalledResponse) Reset() {
+	*x = WriteInstalledResponse{}
+	mi := &file_provider_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteInstalledResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteInstalledResponse) ProtoMessage() {}
+
+func (x *WriteInstalledResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteInstalledResponse.ProtoReflect.Descriptor instead.
+func (*WriteInstalledResponse) Descriptor() ([]byte, []int) {
+	return file_provider_proto_rawDescGZIP(), []int{16}
+}
+
+// ExecuteRequest is one step of the saga, with everything the provider needs
+// to perform it: the key's unit in the version being installed, the unit of
+// the installed version where there is one, and for a hook what to run.
+type ExecuteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Step          *Step                  `protobuf:"bytes,1,opt,name=step,proto3" json:"step,omitempty"`
+	Unit          *Unit                  `protobuf:"bytes,2,opt,name=unit,proto3" json:"unit,omitempty"`
+	Previous      *Unit                  `protobuf:"bytes,3,opt,name=previous,proto3" json:"previous,omitempty"`
+	Credentials   []*Credential          `protobuf:"bytes,4,rep,name=credentials,proto3" json:"credentials,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecuteRequest) Reset() {
+	*x = ExecuteRequest{}
+	mi := &file_provider_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecuteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecuteRequest) ProtoMessage() {}
+
+func (x *ExecuteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecuteRequest.ProtoReflect.Descriptor instead.
+func (*ExecuteRequest) Descriptor() ([]byte, []int) {
+	return file_provider_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ExecuteRequest) GetStep() *Step {
+	if x != nil {
+		return x.Step
+	}
+	return nil
+}
+
+func (x *ExecuteRequest) GetUnit() *Unit {
+	if x != nil {
+		return x.Unit
+	}
+	return nil
+}
+
+func (x *ExecuteRequest) GetPrevious() *Unit {
+	if x != nil {
+		return x.Previous
+	}
+	return nil
+}
+
+func (x *ExecuteRequest) GetCredentials() []*Credential {
+	if x != nil {
+		return x.Credentials
+	}
+	return nil
+}
+
+type Step struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	N     int64                  `protobuf:"varint,1,opt,name=n,proto3" json:"n,omitempty"`
+	Key   string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	// kind: stop | hook | apply | wait | remove.
+	Kind      string   `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	Name      string   `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Phase     string   `protobuf:"bytes,5,opt,name=phase,proto3" json:"phase,omitempty"`
+	Timeout   string   `protobuf:"bytes,6,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	Exclusive bool     `protobuf:"varint,7,opt,name=exclusive,proto3" json:"exclusive,omitempty"`
+	Image     string   `protobuf:"bytes,8,opt,name=image,proto3" json:"image,omitempty"`
+	Command   []string `protobuf:"bytes,9,rep,name=command,proto3" json:"command,omitempty"`
+	// rollback: this step undoes an earlier one — an apply of the previous
+	// unit, a remove of a key that was added, a hook's compensation.
+	Rollback      bool `protobuf:"varint,10,opt,name=rollback,proto3" json:"rollback,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Step) Reset() {
+	*x = Step{}
+	mi := &file_provider_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Step) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Step) ProtoMessage() {}
+
+func (x *Step) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Step.ProtoReflect.Descriptor instead.
+func (*Step) Descriptor() ([]byte, []int) {
+	return file_provider_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *Step) GetN() int64 {
+	if x != nil {
+		return x.N
+	}
+	return 0
+}
+
+func (x *Step) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *Step) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *Step) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Step) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *Step) GetTimeout() string {
+	if x != nil {
+		return x.Timeout
+	}
+	return ""
+}
+
+func (x *Step) GetExclusive() bool {
+	if x != nil {
+		return x.Exclusive
+	}
+	return false
+}
+
+func (x *Step) GetImage() string {
+	if x != nil {
+		return x.Image
+	}
+	return ""
+}
+
+func (x *Step) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *Step) GetRollback() bool {
+	if x != nil {
+		return x.Rollback
+	}
+	return false
+}
+
+type ExecuteEvent struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Message string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Done    bool                   `protobuf:"varint,2,opt,name=done,proto3" json:"done,omitempty"`
+	// error, on the last event: why the step failed; empty — it succeeded.
+	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecuteEvent) Reset() {
+	*x = ExecuteEvent{}
+	mi := &file_provider_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecuteEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecuteEvent) ProtoMessage() {}
+
+func (x *ExecuteEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecuteEvent.ProtoReflect.Descriptor instead.
+func (*ExecuteEvent) Descriptor() ([]byte, []int) {
+	return file_provider_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ExecuteEvent) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ExecuteEvent) GetDone() bool {
+	if x != nil {
+		return x.Done
+	}
+	return false
+}
+
+func (x *ExecuteEvent) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 type Release struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Installation  string                 `protobuf:"bytes,1,opt,name=installation,proto3" json:"installation,omitempty"`
@@ -770,7 +1201,7 @@ type Release struct {
 
 func (x *Release) Reset() {
 	*x = Release{}
-	mi := &file_provider_proto_msgTypes[13]
+	mi := &file_provider_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -782,7 +1213,7 @@ func (x *Release) String() string {
 func (*Release) ProtoMessage() {}
 
 func (x *Release) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[13]
+	mi := &file_provider_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -795,7 +1226,7 @@ func (x *Release) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Release.ProtoReflect.Descriptor instead.
 func (*Release) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{13}
+	return file_provider_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Release) GetInstallation() string {
@@ -849,7 +1280,7 @@ type Rollout struct {
 
 func (x *Rollout) Reset() {
 	*x = Rollout{}
-	mi := &file_provider_proto_msgTypes[14]
+	mi := &file_provider_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -861,7 +1292,7 @@ func (x *Rollout) String() string {
 func (*Rollout) ProtoMessage() {}
 
 func (x *Rollout) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[14]
+	mi := &file_provider_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -874,7 +1305,7 @@ func (x *Rollout) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Rollout.ProtoReflect.Descriptor instead.
 func (*Rollout) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{14}
+	return file_provider_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Rollout) GetMaxUnavailable() int64 {
@@ -908,7 +1339,7 @@ type Unit struct {
 
 func (x *Unit) Reset() {
 	*x = Unit{}
-	mi := &file_provider_proto_msgTypes[15]
+	mi := &file_provider_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -920,7 +1351,7 @@ func (x *Unit) String() string {
 func (*Unit) ProtoMessage() {}
 
 func (x *Unit) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[15]
+	mi := &file_provider_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -933,7 +1364,7 @@ func (x *Unit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Unit.ProtoReflect.Descriptor instead.
 func (*Unit) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{15}
+	return file_provider_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Unit) GetKey() string {
@@ -1059,7 +1490,7 @@ type EnvVar struct {
 
 func (x *EnvVar) Reset() {
 	*x = EnvVar{}
-	mi := &file_provider_proto_msgTypes[16]
+	mi := &file_provider_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1071,7 +1502,7 @@ func (x *EnvVar) String() string {
 func (*EnvVar) ProtoMessage() {}
 
 func (x *EnvVar) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[16]
+	mi := &file_provider_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1084,7 +1515,7 @@ func (x *EnvVar) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnvVar.ProtoReflect.Descriptor instead.
 func (*EnvVar) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{16}
+	return file_provider_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *EnvVar) GetName() string {
@@ -1118,7 +1549,7 @@ type SecretRef struct {
 
 func (x *SecretRef) Reset() {
 	*x = SecretRef{}
-	mi := &file_provider_proto_msgTypes[17]
+	mi := &file_provider_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1130,7 +1561,7 @@ func (x *SecretRef) String() string {
 func (*SecretRef) ProtoMessage() {}
 
 func (x *SecretRef) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[17]
+	mi := &file_provider_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1143,7 +1574,7 @@ func (x *SecretRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretRef.ProtoReflect.Descriptor instead.
 func (*SecretRef) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{17}
+	return file_provider_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SecretRef) GetName() string {
@@ -1170,7 +1601,7 @@ type Port struct {
 
 func (x *Port) Reset() {
 	*x = Port{}
-	mi := &file_provider_proto_msgTypes[18]
+	mi := &file_provider_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1182,7 +1613,7 @@ func (x *Port) String() string {
 func (*Port) ProtoMessage() {}
 
 func (x *Port) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[18]
+	mi := &file_provider_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1195,7 +1626,7 @@ func (x *Port) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Port.ProtoReflect.Descriptor instead.
 func (*Port) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{18}
+	return file_provider_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Port) GetName() string {
@@ -1223,7 +1654,7 @@ type Readiness struct {
 
 func (x *Readiness) Reset() {
 	*x = Readiness{}
-	mi := &file_provider_proto_msgTypes[19]
+	mi := &file_provider_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1235,7 +1666,7 @@ func (x *Readiness) String() string {
 func (*Readiness) ProtoMessage() {}
 
 func (x *Readiness) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[19]
+	mi := &file_provider_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1248,7 +1679,7 @@ func (x *Readiness) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Readiness.ProtoReflect.Descriptor instead.
 func (*Readiness) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{19}
+	return file_provider_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Readiness) GetTcp() *TCPProbe {
@@ -1281,7 +1712,7 @@ type TCPProbe struct {
 
 func (x *TCPProbe) Reset() {
 	*x = TCPProbe{}
-	mi := &file_provider_proto_msgTypes[20]
+	mi := &file_provider_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1293,7 +1724,7 @@ func (x *TCPProbe) String() string {
 func (*TCPProbe) ProtoMessage() {}
 
 func (x *TCPProbe) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[20]
+	mi := &file_provider_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1306,7 +1737,7 @@ func (x *TCPProbe) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TCPProbe.ProtoReflect.Descriptor instead.
 func (*TCPProbe) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{20}
+	return file_provider_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *TCPProbe) GetPort() int64 {
@@ -1326,7 +1757,7 @@ type HTTPProbe struct {
 
 func (x *HTTPProbe) Reset() {
 	*x = HTTPProbe{}
-	mi := &file_provider_proto_msgTypes[21]
+	mi := &file_provider_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1338,7 +1769,7 @@ func (x *HTTPProbe) String() string {
 func (*HTTPProbe) ProtoMessage() {}
 
 func (x *HTTPProbe) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[21]
+	mi := &file_provider_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1351,7 +1782,7 @@ func (x *HTTPProbe) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HTTPProbe.ProtoReflect.Descriptor instead.
 func (*HTTPProbe) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{21}
+	return file_provider_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *HTTPProbe) GetPort() int64 {
@@ -1379,7 +1810,7 @@ type Claim struct {
 
 func (x *Claim) Reset() {
 	*x = Claim{}
-	mi := &file_provider_proto_msgTypes[22]
+	mi := &file_provider_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1391,7 +1822,7 @@ func (x *Claim) String() string {
 func (*Claim) ProtoMessage() {}
 
 func (x *Claim) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[22]
+	mi := &file_provider_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1404,7 +1835,7 @@ func (x *Claim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Claim.ProtoReflect.Descriptor instead.
 func (*Claim) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{22}
+	return file_provider_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Claim) GetName() string {
@@ -1439,7 +1870,7 @@ type Library struct {
 
 func (x *Library) Reset() {
 	*x = Library{}
-	mi := &file_provider_proto_msgTypes[23]
+	mi := &file_provider_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1451,7 +1882,7 @@ func (x *Library) String() string {
 func (*Library) ProtoMessage() {}
 
 func (x *Library) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[23]
+	mi := &file_provider_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1464,7 +1895,7 @@ func (x *Library) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Library.ProtoReflect.Descriptor instead.
 func (*Library) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{23}
+	return file_provider_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *Library) GetName() string {
@@ -1504,7 +1935,7 @@ type RenderedFile struct {
 
 func (x *RenderedFile) Reset() {
 	*x = RenderedFile{}
-	mi := &file_provider_proto_msgTypes[24]
+	mi := &file_provider_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1516,7 +1947,7 @@ func (x *RenderedFile) String() string {
 func (*RenderedFile) ProtoMessage() {}
 
 func (x *RenderedFile) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[24]
+	mi := &file_provider_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1529,7 +1960,7 @@ func (x *RenderedFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenderedFile.ProtoReflect.Descriptor instead.
 func (*RenderedFile) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{24}
+	return file_provider_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RenderedFile) GetPath() string {
@@ -1584,7 +2015,7 @@ type InstanceBytes struct {
 
 func (x *InstanceBytes) Reset() {
 	*x = InstanceBytes{}
-	mi := &file_provider_proto_msgTypes[25]
+	mi := &file_provider_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1596,7 +2027,7 @@ func (x *InstanceBytes) String() string {
 func (*InstanceBytes) ProtoMessage() {}
 
 func (x *InstanceBytes) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[25]
+	mi := &file_provider_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1609,7 +2040,7 @@ func (x *InstanceBytes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceBytes.ProtoReflect.Descriptor instead.
 func (*InstanceBytes) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{25}
+	return file_provider_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *InstanceBytes) GetPresent() bool {
@@ -1638,7 +2069,7 @@ type SecretFile struct {
 
 func (x *SecretFile) Reset() {
 	*x = SecretFile{}
-	mi := &file_provider_proto_msgTypes[26]
+	mi := &file_provider_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1650,7 +2081,7 @@ func (x *SecretFile) String() string {
 func (*SecretFile) ProtoMessage() {}
 
 func (x *SecretFile) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[26]
+	mi := &file_provider_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1663,7 +2094,7 @@ func (x *SecretFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretFile.ProtoReflect.Descriptor instead.
 func (*SecretFile) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{26}
+	return file_provider_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SecretFile) GetPath() string {
@@ -1709,7 +2140,7 @@ type Report struct {
 
 func (x *Report) Reset() {
 	*x = Report{}
-	mi := &file_provider_proto_msgTypes[27]
+	mi := &file_provider_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1721,7 +2152,7 @@ func (x *Report) String() string {
 func (*Report) ProtoMessage() {}
 
 func (x *Report) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[27]
+	mi := &file_provider_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1734,7 +2165,7 @@ func (x *Report) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Report.ProtoReflect.Descriptor instead.
 func (*Report) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{27}
+	return file_provider_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *Report) GetInstallation() string {
@@ -1795,7 +2226,7 @@ type Roles struct {
 
 func (x *Roles) Reset() {
 	*x = Roles{}
-	mi := &file_provider_proto_msgTypes[28]
+	mi := &file_provider_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1807,7 +2238,7 @@ func (x *Roles) String() string {
 func (*Roles) ProtoMessage() {}
 
 func (x *Roles) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[28]
+	mi := &file_provider_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1820,7 +2251,7 @@ func (x *Roles) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Roles.ProtoReflect.Descriptor instead.
 func (*Roles) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{28}
+	return file_provider_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *Roles) GetRoles() map[string]string {
@@ -1839,7 +2270,7 @@ type Names struct {
 
 func (x *Names) Reset() {
 	*x = Names{}
-	mi := &file_provider_proto_msgTypes[29]
+	mi := &file_provider_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1851,7 +2282,7 @@ func (x *Names) String() string {
 func (*Names) ProtoMessage() {}
 
 func (x *Names) ProtoReflect() protoreflect.Message {
-	mi := &file_provider_proto_msgTypes[29]
+	mi := &file_provider_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1864,7 +2295,7 @@ func (x *Names) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Names.ProtoReflect.Descriptor instead.
 func (*Names) Descriptor() ([]byte, []int) {
-	return file_provider_proto_rawDescGZIP(), []int{29}
+	return file_provider_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *Names) GetNames() []string {
@@ -1880,10 +2311,11 @@ const file_provider_proto_rawDesc = "" +
 	"\n" +
 	"\x0eprovider.proto\x12\x10pack.provider.v1\".\n" +
 	"\x10HandshakeRequest\x12\x1a\n" +
-	"\bprotocol\x18\x01 \x01(\tR\bprotocol\"G\n" +
+	"\bprotocol\x18\x01 \x01(\tR\bprotocol\"k\n" +
 	"\x11HandshakeResponse\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12\x16\n" +
-	"\x06target\x18\x02 \x01(\tR\x06target\"\xc1\x01\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\"\n" +
+	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\"\xc1\x01\n" +
 	"\x10ConfigureRequest\x12\"\n" +
 	"\finstallation\x18\x01 \x01(\tR\finstallation\x12L\n" +
 	"\bsettings\x18\x02 \x03(\v20.pack.provider.v1.ConfigureRequest.SettingsEntryR\bsettings\x1a;\n" +
@@ -1930,7 +2362,35 @@ const file_provider_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04leaf\x18\x02 \x01(\tR\x04leaf\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\tR\x05value\x12\x10\n" +
-	"\x03key\x18\x04 \x01(\tR\x03key\"\xf0\x01\n" +
+	"\x03key\x18\x04 \x01(\tR\x03key\"\x16\n" +
+	"\x14ReadInstalledRequest\"G\n" +
+	"\x15ReadInstalledResponse\x12\x16\n" +
+	"\x06exists\x18\x01 \x01(\bR\x06exists\x12\x16\n" +
+	"\x06record\x18\x02 \x01(\fR\x06record\"/\n" +
+	"\x15WriteInstalledRequest\x12\x16\n" +
+	"\x06record\x18\x01 \x01(\fR\x06record\"\x18\n" +
+	"\x16WriteInstalledResponse\"\xdc\x01\n" +
+	"\x0eExecuteRequest\x12*\n" +
+	"\x04step\x18\x01 \x01(\v2\x16.pack.provider.v1.StepR\x04step\x12*\n" +
+	"\x04unit\x18\x02 \x01(\v2\x16.pack.provider.v1.UnitR\x04unit\x122\n" +
+	"\bprevious\x18\x03 \x01(\v2\x16.pack.provider.v1.UnitR\bprevious\x12>\n" +
+	"\vcredentials\x18\x04 \x03(\v2\x1c.pack.provider.v1.CredentialR\vcredentials\"\xe8\x01\n" +
+	"\x04Step\x12\f\n" +
+	"\x01n\x18\x01 \x01(\x03R\x01n\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12\x14\n" +
+	"\x05phase\x18\x05 \x01(\tR\x05phase\x12\x18\n" +
+	"\atimeout\x18\x06 \x01(\tR\atimeout\x12\x1c\n" +
+	"\texclusive\x18\a \x01(\bR\texclusive\x12\x14\n" +
+	"\x05image\x18\b \x01(\tR\x05image\x12\x18\n" +
+	"\acommand\x18\t \x03(\tR\acommand\x12\x1a\n" +
+	"\brollback\x18\n" +
+	" \x01(\bR\brollback\"R\n" +
+	"\fExecuteEvent\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x12\n" +
+	"\x04done\x18\x02 \x01(\bR\x04done\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\xf0\x01\n" +
 	"\aRelease\x12\"\n" +
 	"\finstallation\x18\x01 \x01(\tR\finstallation\x12\x12\n" +
 	"\x04pack\x18\x02 \x01(\tR\x04pack\x12\x18\n" +
@@ -2025,13 +2485,16 @@ const file_provider_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1d\n" +
 	"\x05Names\x12\x14\n" +
-	"\x05names\x18\x01 \x03(\tR\x05names2\xc1\x03\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names2\xd7\x05\n" +
 	"\bProvider\x12T\n" +
 	"\tHandshake\x12\".pack.provider.v1.HandshakeRequest\x1a#.pack.provider.v1.HandshakeResponse\x12T\n" +
 	"\tConfigure\x12\".pack.provider.v1.ConfigureRequest\x1a#.pack.provider.v1.ConfigureResponse\x12N\n" +
 	"\aResolve\x12 .pack.provider.v1.ResolveRequest\x1a!.pack.provider.v1.ResolveResponse\x12i\n" +
 	"\x10ValidatePlatform\x12).pack.provider.v1.ValidatePlatformRequest\x1a*.pack.provider.v1.ValidatePlatformResponse\x12N\n" +
-	"\aConvert\x12 .pack.provider.v1.ConvertRequest\x1a!.pack.provider.v1.ConvertResponseB8Z6github.com/ks-tool/pack/provider/providerpb;providerpbb\x06proto3"
+	"\aConvert\x12 .pack.provider.v1.ConvertRequest\x1a!.pack.provider.v1.ConvertResponse\x12`\n" +
+	"\rReadInstalled\x12&.pack.provider.v1.ReadInstalledRequest\x1a'.pack.provider.v1.ReadInstalledResponse\x12c\n" +
+	"\x0eWriteInstalled\x12'.pack.provider.v1.WriteInstalledRequest\x1a(.pack.provider.v1.WriteInstalledResponse\x12M\n" +
+	"\aExecute\x12 .pack.provider.v1.ExecuteRequest\x1a\x1e.pack.provider.v1.ExecuteEvent0\x01B8Z6github.com/ks-tool/pack/provider/providerpb;providerpbb\x06proto3"
 
 var (
 	file_provider_proto_rawDescOnce sync.Once
@@ -2045,7 +2508,7 @@ func file_provider_proto_rawDescGZIP() []byte {
 	return file_provider_proto_rawDescData
 }
 
-var file_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_provider_proto_goTypes = []any{
 	(*HandshakeRequest)(nil),         // 0: pack.provider.v1.HandshakeRequest
 	(*HandshakeResponse)(nil),        // 1: pack.provider.v1.HandshakeResponse
@@ -2060,71 +2523,88 @@ var file_provider_proto_goTypes = []any{
 	(*ConvertResponse)(nil),          // 10: pack.provider.v1.ConvertResponse
 	(*File)(nil),                     // 11: pack.provider.v1.File
 	(*Credential)(nil),               // 12: pack.provider.v1.Credential
-	(*Release)(nil),                  // 13: pack.provider.v1.Release
-	(*Rollout)(nil),                  // 14: pack.provider.v1.Rollout
-	(*Unit)(nil),                     // 15: pack.provider.v1.Unit
-	(*EnvVar)(nil),                   // 16: pack.provider.v1.EnvVar
-	(*SecretRef)(nil),                // 17: pack.provider.v1.SecretRef
-	(*Port)(nil),                     // 18: pack.provider.v1.Port
-	(*Readiness)(nil),                // 19: pack.provider.v1.Readiness
-	(*TCPProbe)(nil),                 // 20: pack.provider.v1.TCPProbe
-	(*HTTPProbe)(nil),                // 21: pack.provider.v1.HTTPProbe
-	(*Claim)(nil),                    // 22: pack.provider.v1.Claim
-	(*Library)(nil),                  // 23: pack.provider.v1.Library
-	(*RenderedFile)(nil),             // 24: pack.provider.v1.RenderedFile
-	(*InstanceBytes)(nil),            // 25: pack.provider.v1.InstanceBytes
-	(*SecretFile)(nil),               // 26: pack.provider.v1.SecretFile
-	(*Report)(nil),                   // 27: pack.provider.v1.Report
-	(*Roles)(nil),                    // 28: pack.provider.v1.Roles
-	(*Names)(nil),                    // 29: pack.provider.v1.Names
-	nil,                              // 30: pack.provider.v1.ConfigureRequest.SettingsEntry
-	nil,                              // 31: pack.provider.v1.ValidatePlatformRequest.MinimumEntry
-	nil,                              // 32: pack.provider.v1.Report.PeersEntry
-	nil,                              // 33: pack.provider.v1.Report.SecretsEntry
-	nil,                              // 34: pack.provider.v1.Roles.RolesEntry
+	(*ReadInstalledRequest)(nil),     // 13: pack.provider.v1.ReadInstalledRequest
+	(*ReadInstalledResponse)(nil),    // 14: pack.provider.v1.ReadInstalledResponse
+	(*WriteInstalledRequest)(nil),    // 15: pack.provider.v1.WriteInstalledRequest
+	(*WriteInstalledResponse)(nil),   // 16: pack.provider.v1.WriteInstalledResponse
+	(*ExecuteRequest)(nil),           // 17: pack.provider.v1.ExecuteRequest
+	(*Step)(nil),                     // 18: pack.provider.v1.Step
+	(*ExecuteEvent)(nil),             // 19: pack.provider.v1.ExecuteEvent
+	(*Release)(nil),                  // 20: pack.provider.v1.Release
+	(*Rollout)(nil),                  // 21: pack.provider.v1.Rollout
+	(*Unit)(nil),                     // 22: pack.provider.v1.Unit
+	(*EnvVar)(nil),                   // 23: pack.provider.v1.EnvVar
+	(*SecretRef)(nil),                // 24: pack.provider.v1.SecretRef
+	(*Port)(nil),                     // 25: pack.provider.v1.Port
+	(*Readiness)(nil),                // 26: pack.provider.v1.Readiness
+	(*TCPProbe)(nil),                 // 27: pack.provider.v1.TCPProbe
+	(*HTTPProbe)(nil),                // 28: pack.provider.v1.HTTPProbe
+	(*Claim)(nil),                    // 29: pack.provider.v1.Claim
+	(*Library)(nil),                  // 30: pack.provider.v1.Library
+	(*RenderedFile)(nil),             // 31: pack.provider.v1.RenderedFile
+	(*InstanceBytes)(nil),            // 32: pack.provider.v1.InstanceBytes
+	(*SecretFile)(nil),               // 33: pack.provider.v1.SecretFile
+	(*Report)(nil),                   // 34: pack.provider.v1.Report
+	(*Roles)(nil),                    // 35: pack.provider.v1.Roles
+	(*Names)(nil),                    // 36: pack.provider.v1.Names
+	nil,                              // 37: pack.provider.v1.ConfigureRequest.SettingsEntry
+	nil,                              // 38: pack.provider.v1.ValidatePlatformRequest.MinimumEntry
+	nil,                              // 39: pack.provider.v1.Report.PeersEntry
+	nil,                              // 40: pack.provider.v1.Report.SecretsEntry
+	nil,                              // 41: pack.provider.v1.Roles.RolesEntry
 }
 var file_provider_proto_depIdxs = []int32{
-	30, // 0: pack.provider.v1.ConfigureRequest.settings:type_name -> pack.provider.v1.ConfigureRequest.SettingsEntry
+	37, // 0: pack.provider.v1.ConfigureRequest.settings:type_name -> pack.provider.v1.ConfigureRequest.SettingsEntry
 	6,  // 1: pack.provider.v1.ResolveResponse.instances:type_name -> pack.provider.v1.Instance
-	31, // 2: pack.provider.v1.ValidatePlatformRequest.minimum:type_name -> pack.provider.v1.ValidatePlatformRequest.MinimumEntry
-	13, // 3: pack.provider.v1.ConvertRequest.release:type_name -> pack.provider.v1.Release
+	38, // 2: pack.provider.v1.ValidatePlatformRequest.minimum:type_name -> pack.provider.v1.ValidatePlatformRequest.MinimumEntry
+	20, // 3: pack.provider.v1.ConvertRequest.release:type_name -> pack.provider.v1.Release
 	12, // 4: pack.provider.v1.ConvertRequest.credentials:type_name -> pack.provider.v1.Credential
 	11, // 5: pack.provider.v1.ConvertResponse.files:type_name -> pack.provider.v1.File
-	14, // 6: pack.provider.v1.Release.rollout:type_name -> pack.provider.v1.Rollout
-	15, // 7: pack.provider.v1.Release.units:type_name -> pack.provider.v1.Unit
-	27, // 8: pack.provider.v1.Release.report:type_name -> pack.provider.v1.Report
-	16, // 9: pack.provider.v1.Unit.env:type_name -> pack.provider.v1.EnvVar
-	18, // 10: pack.provider.v1.Unit.ports:type_name -> pack.provider.v1.Port
-	19, // 11: pack.provider.v1.Unit.readiness:type_name -> pack.provider.v1.Readiness
-	22, // 12: pack.provider.v1.Unit.data:type_name -> pack.provider.v1.Claim
-	23, // 13: pack.provider.v1.Unit.libraries:type_name -> pack.provider.v1.Library
-	24, // 14: pack.provider.v1.Unit.files:type_name -> pack.provider.v1.RenderedFile
-	26, // 15: pack.provider.v1.Unit.secret_files:type_name -> pack.provider.v1.SecretFile
-	17, // 16: pack.provider.v1.EnvVar.secret:type_name -> pack.provider.v1.SecretRef
-	20, // 17: pack.provider.v1.Readiness.tcp:type_name -> pack.provider.v1.TCPProbe
-	21, // 18: pack.provider.v1.Readiness.http:type_name -> pack.provider.v1.HTTPProbe
-	25, // 19: pack.provider.v1.RenderedFile.instances:type_name -> pack.provider.v1.InstanceBytes
-	17, // 20: pack.provider.v1.SecretFile.secret:type_name -> pack.provider.v1.SecretRef
-	32, // 21: pack.provider.v1.Report.peers:type_name -> pack.provider.v1.Report.PeersEntry
-	33, // 22: pack.provider.v1.Report.secrets:type_name -> pack.provider.v1.Report.SecretsEntry
-	34, // 23: pack.provider.v1.Roles.roles:type_name -> pack.provider.v1.Roles.RolesEntry
-	28, // 24: pack.provider.v1.Report.PeersEntry.value:type_name -> pack.provider.v1.Roles
-	29, // 25: pack.provider.v1.Report.SecretsEntry.value:type_name -> pack.provider.v1.Names
-	0,  // 26: pack.provider.v1.Provider.Handshake:input_type -> pack.provider.v1.HandshakeRequest
-	2,  // 27: pack.provider.v1.Provider.Configure:input_type -> pack.provider.v1.ConfigureRequest
-	4,  // 28: pack.provider.v1.Provider.Resolve:input_type -> pack.provider.v1.ResolveRequest
-	7,  // 29: pack.provider.v1.Provider.ValidatePlatform:input_type -> pack.provider.v1.ValidatePlatformRequest
-	9,  // 30: pack.provider.v1.Provider.Convert:input_type -> pack.provider.v1.ConvertRequest
-	1,  // 31: pack.provider.v1.Provider.Handshake:output_type -> pack.provider.v1.HandshakeResponse
-	3,  // 32: pack.provider.v1.Provider.Configure:output_type -> pack.provider.v1.ConfigureResponse
-	5,  // 33: pack.provider.v1.Provider.Resolve:output_type -> pack.provider.v1.ResolveResponse
-	8,  // 34: pack.provider.v1.Provider.ValidatePlatform:output_type -> pack.provider.v1.ValidatePlatformResponse
-	10, // 35: pack.provider.v1.Provider.Convert:output_type -> pack.provider.v1.ConvertResponse
-	31, // [31:36] is the sub-list for method output_type
-	26, // [26:31] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	18, // 6: pack.provider.v1.ExecuteRequest.step:type_name -> pack.provider.v1.Step
+	22, // 7: pack.provider.v1.ExecuteRequest.unit:type_name -> pack.provider.v1.Unit
+	22, // 8: pack.provider.v1.ExecuteRequest.previous:type_name -> pack.provider.v1.Unit
+	12, // 9: pack.provider.v1.ExecuteRequest.credentials:type_name -> pack.provider.v1.Credential
+	21, // 10: pack.provider.v1.Release.rollout:type_name -> pack.provider.v1.Rollout
+	22, // 11: pack.provider.v1.Release.units:type_name -> pack.provider.v1.Unit
+	34, // 12: pack.provider.v1.Release.report:type_name -> pack.provider.v1.Report
+	23, // 13: pack.provider.v1.Unit.env:type_name -> pack.provider.v1.EnvVar
+	25, // 14: pack.provider.v1.Unit.ports:type_name -> pack.provider.v1.Port
+	26, // 15: pack.provider.v1.Unit.readiness:type_name -> pack.provider.v1.Readiness
+	29, // 16: pack.provider.v1.Unit.data:type_name -> pack.provider.v1.Claim
+	30, // 17: pack.provider.v1.Unit.libraries:type_name -> pack.provider.v1.Library
+	31, // 18: pack.provider.v1.Unit.files:type_name -> pack.provider.v1.RenderedFile
+	33, // 19: pack.provider.v1.Unit.secret_files:type_name -> pack.provider.v1.SecretFile
+	24, // 20: pack.provider.v1.EnvVar.secret:type_name -> pack.provider.v1.SecretRef
+	27, // 21: pack.provider.v1.Readiness.tcp:type_name -> pack.provider.v1.TCPProbe
+	28, // 22: pack.provider.v1.Readiness.http:type_name -> pack.provider.v1.HTTPProbe
+	32, // 23: pack.provider.v1.RenderedFile.instances:type_name -> pack.provider.v1.InstanceBytes
+	24, // 24: pack.provider.v1.SecretFile.secret:type_name -> pack.provider.v1.SecretRef
+	39, // 25: pack.provider.v1.Report.peers:type_name -> pack.provider.v1.Report.PeersEntry
+	40, // 26: pack.provider.v1.Report.secrets:type_name -> pack.provider.v1.Report.SecretsEntry
+	41, // 27: pack.provider.v1.Roles.roles:type_name -> pack.provider.v1.Roles.RolesEntry
+	35, // 28: pack.provider.v1.Report.PeersEntry.value:type_name -> pack.provider.v1.Roles
+	36, // 29: pack.provider.v1.Report.SecretsEntry.value:type_name -> pack.provider.v1.Names
+	0,  // 30: pack.provider.v1.Provider.Handshake:input_type -> pack.provider.v1.HandshakeRequest
+	2,  // 31: pack.provider.v1.Provider.Configure:input_type -> pack.provider.v1.ConfigureRequest
+	4,  // 32: pack.provider.v1.Provider.Resolve:input_type -> pack.provider.v1.ResolveRequest
+	7,  // 33: pack.provider.v1.Provider.ValidatePlatform:input_type -> pack.provider.v1.ValidatePlatformRequest
+	9,  // 34: pack.provider.v1.Provider.Convert:input_type -> pack.provider.v1.ConvertRequest
+	13, // 35: pack.provider.v1.Provider.ReadInstalled:input_type -> pack.provider.v1.ReadInstalledRequest
+	15, // 36: pack.provider.v1.Provider.WriteInstalled:input_type -> pack.provider.v1.WriteInstalledRequest
+	17, // 37: pack.provider.v1.Provider.Execute:input_type -> pack.provider.v1.ExecuteRequest
+	1,  // 38: pack.provider.v1.Provider.Handshake:output_type -> pack.provider.v1.HandshakeResponse
+	3,  // 39: pack.provider.v1.Provider.Configure:output_type -> pack.provider.v1.ConfigureResponse
+	5,  // 40: pack.provider.v1.Provider.Resolve:output_type -> pack.provider.v1.ResolveResponse
+	8,  // 41: pack.provider.v1.Provider.ValidatePlatform:output_type -> pack.provider.v1.ValidatePlatformResponse
+	10, // 42: pack.provider.v1.Provider.Convert:output_type -> pack.provider.v1.ConvertResponse
+	14, // 43: pack.provider.v1.Provider.ReadInstalled:output_type -> pack.provider.v1.ReadInstalledResponse
+	16, // 44: pack.provider.v1.Provider.WriteInstalled:output_type -> pack.provider.v1.WriteInstalledResponse
+	19, // 45: pack.provider.v1.Provider.Execute:output_type -> pack.provider.v1.ExecuteEvent
+	38, // [38:46] is the sub-list for method output_type
+	30, // [30:38] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_provider_proto_init() }
@@ -2132,15 +2612,15 @@ func file_provider_proto_init() {
 	if File_provider_proto != nil {
 		return
 	}
-	file_provider_proto_msgTypes[24].OneofWrappers = []any{}
-	file_provider_proto_msgTypes[26].OneofWrappers = []any{}
+	file_provider_proto_msgTypes[31].OneofWrappers = []any{}
+	file_provider_proto_msgTypes[33].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_provider_proto_rawDesc), len(file_provider_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   35,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

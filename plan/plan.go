@@ -47,6 +47,13 @@ type Step struct {
 	Compensate   string `json:"compensate,omitempty"` // how it is undone; "" for an irreversible hook
 	Irreversible bool   `json:"irreversible,omitempty"`
 	System       bool   `json:"system,omitempty"` // a composition hook
+
+	// What a hook runs, resolved to images — for whoever executes the plan,
+	// not part of what it prints.
+	Image             string   `json:"-"`
+	Command           []string `json:"-"`
+	CompensateImage   string   `json:"-"`
+	CompensateCommand []string `json:"-"`
 }
 
 // Change is what happened to one key between the two versions.
@@ -179,7 +186,7 @@ func Build(in Input) (*Plan, error) {
 			add(Step{Key: key, Kind: Stop, Detail: "exclusive hook follows"})
 		}
 		for _, h := range pre {
-			add(hookStep(key, h, c))
+			add(hookStep(key, h, c, images(in, key)))
 		}
 		add(Step{Key: key, Kind: Apply, Detail: applyDetail(c, install), Compensate: applyCompensate(c)})
 		switch {
@@ -189,7 +196,7 @@ func Build(in Input) (*Plan, error) {
 			add(Step{Key: key, Kind: Wait, Detail: "ready (" + readiness(comp.Root.Readiness) + ")"})
 		}
 		for _, h := range post {
-			add(hookStep(key, h, c))
+			add(hookStep(key, h, c, images(in, key)))
 		}
 		for i := first; i <= len(p.Steps); i++ {
 			stepsOf[key] = append(stepsOf[key], i)
@@ -429,9 +436,34 @@ func systemHooks(b *bundle.Bundle, key, dir string) (pre, post []packschema.Hook
 	return pre, post
 }
 
-func hookStep(key string, h packschema.Hook, c Change) Step {
+// images resolves a hook's image for a key: new (the default) — the key's
+// image in the target version, old — in the installed one, anything else —
+// the member of that name (a composition hook).
+func images(in Input, key string) func(sel string) string {
+	return func(sel string) string {
+		switch sel {
+		case "", "new":
+			return in.To.Components[in.To.KeyComponent[key]].ImageRef
+		case "old":
+			if in.From == nil {
+				return ""
+			}
+			if name, ok := in.From.KeyComponent[key]; ok {
+				return in.From.Components[name].ImageRef
+			}
+			return ""
+		}
+		if m, ok := in.To.Components[sel]; ok {
+			return m.ImageRef
+		}
+		return ""
+	}
+}
+
+func hookStep(key string, h packschema.Hook, c Change, image func(string) string) Step {
 	s := Step{Key: key, Kind: Hook, Name: h.Name, Phase: h.Phase, Timeout: h.Timeout,
-		Idempotent: h.Idempotent, Exclusive: h.Exclusive, System: len(h.For) > 0}
+		Idempotent: h.Idempotent, Exclusive: h.Exclusive, System: len(h.For) > 0,
+		Image: image(h.Image), Command: h.Command}
 	switch {
 	case len(c.From) > 0 && len(c.To) > 0:
 		s.Detail = fmt.Sprintf("%s → %s", c.From, c.To)
@@ -440,6 +472,7 @@ func hookStep(key string, h packschema.Hook, c Change) Step {
 	}
 	if h.Compensate != nil {
 		s.Compensate = strings.Join(h.Compensate.Command, " ")
+		s.CompensateImage, s.CompensateCommand = image(h.Compensate.Image), h.Compensate.Command
 	} else if !h.Idempotent {
 		s.Irreversible = true
 	}

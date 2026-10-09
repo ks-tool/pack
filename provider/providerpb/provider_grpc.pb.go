@@ -4,10 +4,12 @@
 // - protoc             v6.33.4
 // source: provider.proto
 
-// Provider is the seam between pack and a target — horchestra, Kubernetes, VMs.
-// pack knows no target: it renders a pack to a target-neutral Release, and a
-// provider, a program of its own, says what a key's platform means on its
-// system and turns the release into the system's objects.
+// Provider is the seam between pack and a target — Kubernetes, VMs, horchestra.
+// pack knows no target: it renders a pack to a target-neutral Release, plans
+// the saga and drives it step by step; a provider, a program of its own, says
+// what a key's platform means on its system and turns each request of pack
+// into the system's own data and actions — a StatefulSet and a Secret applied
+// to a cluster, config files copied to a host and an image started there.
 //
 // pack starts the provider binary (pack-provider-<target>), gives it a unix
 // socket in a private directory (PACK_PROVIDER_SOCKET) and its stdin — EOF on
@@ -39,6 +41,9 @@ const (
 	Provider_Resolve_FullMethodName          = "/pack.provider.v1.Provider/Resolve"
 	Provider_ValidatePlatform_FullMethodName = "/pack.provider.v1.Provider/ValidatePlatform"
 	Provider_Convert_FullMethodName          = "/pack.provider.v1.Provider/Convert"
+	Provider_ReadInstalled_FullMethodName    = "/pack.provider.v1.Provider/ReadInstalled"
+	Provider_WriteInstalled_FullMethodName   = "/pack.provider.v1.Provider/WriteInstalled"
+	Provider_Execute_FullMethodName          = "/pack.provider.v1.Provider/Execute"
 )
 
 // ProviderClient is the client API for Provider service.
@@ -56,8 +61,18 @@ type ProviderClient interface {
 	Resolve(ctx context.Context, in *ResolveRequest, opts ...grpc.CallOption) (*ResolveResponse, error)
 	// ValidatePlatform checks a key's platform against the composition's minimum.
 	ValidatePlatform(ctx context.Context, in *ValidatePlatformRequest, opts ...grpc.CallOption) (*ValidatePlatformResponse, error)
-	// Convert turns a release into the target's objects, as files.
+	// Convert turns a release into the target's objects, as files — what the
+	// target would apply, for pack template.
 	Convert(ctx context.Context, in *ConvertRequest, opts ...grpc.CallOption) (*ConvertResponse, error)
+	// ReadInstalled returns the installation's record as pack last wrote it,
+	// kept in the target's own system. Requires the "execute" capability.
+	ReadInstalled(ctx context.Context, in *ReadInstalledRequest, opts ...grpc.CallOption) (*ReadInstalledResponse, error)
+	// WriteInstalled keeps pack's record of the installation — what is
+	// installed and how far a saga got. The provider stores it verbatim.
+	WriteInstalled(ctx context.Context, in *WriteInstalledRequest, opts ...grpc.CallOption) (*WriteInstalledResponse, error)
+	// Execute performs one step of the saga on the target and reports as it
+	// goes; the last event says whether the step succeeded.
+	Execute(ctx context.Context, in *ExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ExecuteEvent], error)
 }
 
 type providerClient struct {
@@ -118,6 +133,45 @@ func (c *providerClient) Convert(ctx context.Context, in *ConvertRequest, opts .
 	return out, nil
 }
 
+func (c *providerClient) ReadInstalled(ctx context.Context, in *ReadInstalledRequest, opts ...grpc.CallOption) (*ReadInstalledResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReadInstalledResponse)
+	err := c.cc.Invoke(ctx, Provider_ReadInstalled_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *providerClient) WriteInstalled(ctx context.Context, in *WriteInstalledRequest, opts ...grpc.CallOption) (*WriteInstalledResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WriteInstalledResponse)
+	err := c.cc.Invoke(ctx, Provider_WriteInstalled_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *providerClient) Execute(ctx context.Context, in *ExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ExecuteEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Provider_ServiceDesc.Streams[0], Provider_Execute_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExecuteRequest, ExecuteEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Provider_ExecuteClient = grpc.ServerStreamingClient[ExecuteEvent]
+
 // ProviderServer is the server API for Provider service.
 // All implementations must embed UnimplementedProviderServer
 // for forward compatibility.
@@ -133,8 +187,18 @@ type ProviderServer interface {
 	Resolve(context.Context, *ResolveRequest) (*ResolveResponse, error)
 	// ValidatePlatform checks a key's platform against the composition's minimum.
 	ValidatePlatform(context.Context, *ValidatePlatformRequest) (*ValidatePlatformResponse, error)
-	// Convert turns a release into the target's objects, as files.
+	// Convert turns a release into the target's objects, as files — what the
+	// target would apply, for pack template.
 	Convert(context.Context, *ConvertRequest) (*ConvertResponse, error)
+	// ReadInstalled returns the installation's record as pack last wrote it,
+	// kept in the target's own system. Requires the "execute" capability.
+	ReadInstalled(context.Context, *ReadInstalledRequest) (*ReadInstalledResponse, error)
+	// WriteInstalled keeps pack's record of the installation — what is
+	// installed and how far a saga got. The provider stores it verbatim.
+	WriteInstalled(context.Context, *WriteInstalledRequest) (*WriteInstalledResponse, error)
+	// Execute performs one step of the saga on the target and reports as it
+	// goes; the last event says whether the step succeeded.
+	Execute(*ExecuteRequest, grpc.ServerStreamingServer[ExecuteEvent]) error
 	mustEmbedUnimplementedProviderServer()
 }
 
@@ -159,6 +223,15 @@ func (UnimplementedProviderServer) ValidatePlatform(context.Context, *ValidatePl
 }
 func (UnimplementedProviderServer) Convert(context.Context, *ConvertRequest) (*ConvertResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Convert not implemented")
+}
+func (UnimplementedProviderServer) ReadInstalled(context.Context, *ReadInstalledRequest) (*ReadInstalledResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReadInstalled not implemented")
+}
+func (UnimplementedProviderServer) WriteInstalled(context.Context, *WriteInstalledRequest) (*WriteInstalledResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method WriteInstalled not implemented")
+}
+func (UnimplementedProviderServer) Execute(*ExecuteRequest, grpc.ServerStreamingServer[ExecuteEvent]) error {
+	return status.Error(codes.Unimplemented, "method Execute not implemented")
 }
 func (UnimplementedProviderServer) mustEmbedUnimplementedProviderServer() {}
 func (UnimplementedProviderServer) testEmbeddedByValue()                  {}
@@ -271,6 +344,53 @@ func _Provider_Convert_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Provider_ReadInstalled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadInstalledRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProviderServer).ReadInstalled(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Provider_ReadInstalled_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProviderServer).ReadInstalled(ctx, req.(*ReadInstalledRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Provider_WriteInstalled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteInstalledRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProviderServer).WriteInstalled(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Provider_WriteInstalled_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProviderServer).WriteInstalled(ctx, req.(*WriteInstalledRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Provider_Execute_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ExecuteRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ProviderServer).Execute(m, &grpc.GenericServerStream[ExecuteRequest, ExecuteEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Provider_ExecuteServer = grpc.ServerStreamingServer[ExecuteEvent]
+
 // Provider_ServiceDesc is the grpc.ServiceDesc for Provider service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -298,7 +418,21 @@ var Provider_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Convert",
 			Handler:    _Provider_Convert_Handler,
 		},
+		{
+			MethodName: "ReadInstalled",
+			Handler:    _Provider_ReadInstalled_Handler,
+		},
+		{
+			MethodName: "WriteInstalled",
+			Handler:    _Provider_WriteInstalled_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Execute",
+			Handler:       _Provider_Execute_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "provider.proto",
 }

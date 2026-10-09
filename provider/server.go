@@ -77,7 +77,11 @@ func (s *server) Handshake(_ context.Context, req *providerpb.HandshakeRequest) 
 	if req.Protocol != Protocol {
 		return nil, status.Errorf(codes.FailedPrecondition, "protocol %q: this provider speaks %s", req.Protocol, Protocol)
 	}
-	return &providerpb.HandshakeResponse{Protocol: Protocol, Target: s.t.Name()}, nil
+	resp := &providerpb.HandshakeResponse{Protocol: Protocol, Target: s.t.Name()}
+	if c, ok := s.t.(target.Capable); ok {
+		resp.Capabilities = c.Capabilities()
+	}
+	return resp, nil
 }
 
 func (s *server) Configure(_ context.Context, req *providerpb.ConfigureRequest) (*providerpb.ConfigureResponse, error) {
@@ -144,4 +148,67 @@ func (s *server) Convert(_ context.Context, req *providerpb.ConvertRequest) (*pr
 		resp.Files = append(resp.Files, &providerpb.File{Path: f.Path, Data: f.Data, Mode: uint32(f.Mode), Stream: f.Stream})
 	}
 	return resp, nil
+}
+
+func (s *server) executor() (target.Executor, error) {
+	inst, err := s.installation()
+	if err != nil {
+		return nil, err
+	}
+	x, ok := inst.(target.Executor)
+	if !ok {
+		return nil, status.Errorf(codes.Unimplemented, "target %s does not execute steps", s.t.Name())
+	}
+	return x, nil
+}
+
+func (s *server) ReadInstalled(context.Context, *providerpb.ReadInstalledRequest) (*providerpb.ReadInstalledResponse, error) {
+	x, err := s.executor()
+	if err != nil {
+		return nil, err
+	}
+	rec, exists, err := x.ReadInstalled()
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	return &providerpb.ReadInstalledResponse{Exists: exists, Record: rec}, nil
+}
+
+func (s *server) WriteInstalled(_ context.Context, req *providerpb.WriteInstalledRequest) (*providerpb.WriteInstalledResponse, error) {
+	x, err := s.executor()
+	if err != nil {
+		return nil, err
+	}
+	if err := x.WriteInstalled(req.Record); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	return &providerpb.WriteInstalledResponse{}, nil
+}
+
+func (s *server) Execute(req *providerpb.ExecuteRequest, stream providerpb.Provider_ExecuteServer) error {
+	x, err := s.executor()
+	if err != nil {
+		return err
+	}
+	step, err := stepFrom(req)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	var sendErr error
+	events := func(msg string) {
+		if sendErr == nil {
+			sendErr = stream.Send(&providerpb.ExecuteEvent{Message: msg})
+		}
+	}
+	last := &providerpb.ExecuteEvent{Done: true}
+	if err := x.Execute(stream.Context(), step, events); err != nil {
+		last.Error = err.Error()
+		if len(last.Error) == 0 {
+			last.Error = "failed"
+		}
+	}
+	if sendErr != nil {
+		return sendErr
+	}
+	return stream.Send(last)
 }

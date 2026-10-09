@@ -1,9 +1,11 @@
 syntax = "proto3";
 
-// Provider is the seam between pack and a target — horchestra, Kubernetes, VMs.
-// pack knows no target: it renders a pack to a target-neutral Release, and a
-// provider, a program of its own, says what a key's platform means on its
-// system and turns the release into the system's objects.
+// Provider is the seam between pack and a target — Kubernetes, VMs, horchestra.
+// pack knows no target: it renders a pack to a target-neutral Release, plans
+// the saga and drives it step by step; a provider, a program of its own, says
+// what a key's platform means on its system and turns each request of pack
+// into the system's own data and actions — a StatefulSet and a Secret applied
+// to a cluster, config files copied to a host and an image started there.
 //
 // pack starts the provider binary (pack-provider-<target>), gives it a unix
 // socket in a private directory (PACK_PROVIDER_SOCKET) and its stdin — EOF on
@@ -30,8 +32,19 @@ service Provider {
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
   // ValidatePlatform checks a key's platform against the composition's minimum.
   rpc ValidatePlatform(ValidatePlatformRequest) returns (ValidatePlatformResponse);
-  // Convert turns a release into the target's objects, as files.
+  // Convert turns a release into the target's objects, as files — what the
+  // target would apply, for pack template.
   rpc Convert(ConvertRequest) returns (ConvertResponse);
+
+  // ReadInstalled returns the installation's record as pack last wrote it,
+  // kept in the target's own system. Requires the "execute" capability.
+  rpc ReadInstalled(ReadInstalledRequest) returns (ReadInstalledResponse);
+  // WriteInstalled keeps pack's record of the installation — what is
+  // installed and how far a saga got. The provider stores it verbatim.
+  rpc WriteInstalled(WriteInstalledRequest) returns (WriteInstalledResponse);
+  // Execute performs one step of the saga on the target and reports as it
+  // goes; the last event says whether the step succeeded.
+  rpc Execute(ExecuteRequest) returns (stream ExecuteEvent);
 }
 
 message HandshakeRequest {
@@ -41,6 +54,9 @@ message HandshakeRequest {
 message HandshakeResponse {
   string protocol = 1;
   string target = 2;
+  // capabilities the target has: "execute" — it performs saga steps and
+  // keeps the installation's record (ReadInstalled, WriteInstalled, Execute).
+  repeated string capabilities = 3;
 }
 
 message ConfigureRequest {
@@ -106,6 +122,52 @@ message Credential {
   string leaf = 2;
   string value = 3;
   string key = 4;
+}
+
+message ReadInstalledRequest {}
+
+message ReadInstalledResponse {
+  bool exists = 1;
+  bytes record = 2;
+}
+
+message WriteInstalledRequest {
+  bytes record = 1;
+}
+
+message WriteInstalledResponse {}
+
+// ExecuteRequest is one step of the saga, with everything the provider needs
+// to perform it: the key's unit in the version being installed, the unit of
+// the installed version where there is one, and for a hook what to run.
+message ExecuteRequest {
+  Step step = 1;
+  Unit unit = 2;
+  Unit previous = 3;
+  repeated Credential credentials = 4;
+}
+
+message Step {
+  int64 n = 1;
+  string key = 2;
+  // kind: stop | hook | apply | wait | remove.
+  string kind = 3;
+  string name = 4;
+  string phase = 5;
+  string timeout = 6;
+  bool exclusive = 7;
+  string image = 8;
+  repeated string command = 9;
+  // rollback: this step undoes an earlier one — an apply of the previous
+  // unit, a remove of a key that was added, a hook's compensation.
+  bool rollback = 10;
+}
+
+message ExecuteEvent {
+  string message = 1;
+  bool done = 2;
+  // error, on the last event: why the step failed; empty — it succeeded.
+  string error = 3;
 }
 
 // ---- render.Release

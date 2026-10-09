@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,6 +66,7 @@ type Plugin struct {
 	dir    string
 	conn   *grpc.ClientConn
 	client providerpb.ProviderClient
+	caps   []string
 }
 
 // Launch finds and starts the provider of a target and shakes hands with it.
@@ -129,6 +131,7 @@ func Start(name, bin string) (*Plugin, error) {
 		p.Close()
 		return nil, fmt.Errorf("target %s: %s is target %q speaking %s, wanted target %q speaking %s", name, bin, hs.Target, hs.Protocol, name, Protocol)
 	}
+	p.caps = hs.Capabilities
 	return p, nil
 }
 
@@ -153,12 +156,64 @@ func (p *Plugin) Close() {
 
 func (p *Plugin) Name() string { return p.name }
 
+// Capabilities are what the provider declared in the handshake.
+func (p *Plugin) Capabilities() []string { return p.caps }
+
 func (p *Plugin) Configure(installation string, settings target.Settings) (target.Installation, error) {
 	resp, err := p.client.Configure(context.Background(), &providerpb.ConfigureRequest{Installation: installation, Settings: settings})
 	if err != nil {
 		return nil, unwrap(err)
 	}
-	return &remote{p: p, namespace: resp.Namespace, schema: resp.PlatformSchema}, nil
+	r := &remote{p: p, namespace: resp.Namespace, schema: resp.PlatformSchema}
+	if slices.Contains(p.caps, target.CapExecute) {
+		return &executing{r}, nil
+	}
+	return r, nil
+}
+
+// executing is an installation of a provider that declared "execute".
+type executing struct{ *remote }
+
+func (x *executing) ReadInstalled() ([]byte, bool, error) {
+	resp, err := x.p.client.ReadInstalled(context.Background(), &providerpb.ReadInstalledRequest{})
+	if err != nil {
+		return nil, false, unwrap(err)
+	}
+	return resp.Record, resp.Exists, nil
+}
+
+func (x *executing) WriteInstalled(record []byte) error {
+	_, err := x.p.client.WriteInstalled(context.Background(), &providerpb.WriteInstalledRequest{Record: record})
+	return unwrap(err)
+}
+
+func (x *executing) Execute(ctx context.Context, step target.Step, events func(string)) error {
+	req, err := stepTo(step)
+	if err != nil {
+		return err
+	}
+	stream, err := x.p.client.Execute(ctx, req)
+	if err != nil {
+		return unwrap(err)
+	}
+	for {
+		ev, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return fmt.Errorf("target %s: step %d ended without a result", x.p.name, step.N)
+			}
+			return unwrap(err)
+		}
+		if len(ev.Message) > 0 && events != nil {
+			events(ev.Message)
+		}
+		if ev.Done {
+			if len(ev.Error) > 0 {
+				return errors.New(ev.Error)
+			}
+			return nil
+		}
+	}
 }
 
 // remote is the provider bound to an installation, as a target.Installation.
@@ -231,5 +286,7 @@ func unwrap(err error) error {
 
 var (
 	_ target.Target       = (*Plugin)(nil)
+	_ target.Capable      = (*Plugin)(nil)
 	_ target.Installation = (*remote)(nil)
+	_ target.Executor     = (*executing)(nil)
 )

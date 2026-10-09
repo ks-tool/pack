@@ -19,6 +19,8 @@ func main() {
 		err = runTemplate(os.Args[2:])
 	case "plan":
 		err = runPlan(os.Args[2:])
+	case "apply":
+		err = runApply(os.Args[2:])
 	case "schema":
 		err = runSchema(os.Args[2:])
 	case "help", "-h", "--help":
@@ -46,6 +48,10 @@ func usage() {
   pack plan [--from <dir|ref>] --to <dir|ref> --values <file> [--target t] [--set k=v ...] [--savepoints auto|none|k1,k2]
             [--no-rollback k1,k2|all] [--strict] [-o plan.yaml]
                                        the saga: a first installation, or the upgrade between two versions
+  pack apply --pack <dir|ref> --values <file> --name <installation> [--target t] [--set k=v ...] [--savepoints …]
+             [--no-rollback …] [--strict] [--dry-run] [--force] [--secretProvider … --secret …]
+                                       install or upgrade: the target says what is installed, pack drives the saga
+                                       step by step and rolls a failed unit back; the target must perform steps
   registries: PACK_REGISTRY_USER / PACK_REGISTRY_PASSWORD in the environment for credentials
   pack schema vocabulary|platform [--target t]
                                        print the x-pack-* vocabulary, or the schema a target gives the platform half
