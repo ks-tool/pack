@@ -59,7 +59,7 @@ func (ZooKeeper) PackRoot() packschema.Root {
 func (ZooKeeper) PackCompute() map[string]string {
 	return map[string]string{
 		"/conf/server": "indexMap(me.instances.map(h, h + ':' + string(values.ports.peer) + ':' + string(values.ports.election)), 1)",
-		"/myid":        "string(horchestra.ordinal)",
+		"/myid":        "string(pack.ordinal)",
 		"/heapOpts":    "values.jdk.heapOpts",
 	}
 }

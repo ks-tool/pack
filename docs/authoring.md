@@ -175,7 +175,7 @@ Jaas Jaas `json:"jaas" pack:"file=/opt/kafka/config/kafka_jaas.conf,format=templ
 
 `templates/jaas.tmpl` is a Go `text/template`. Its data is the subtree's
 fields at the top level, plus `values` (the whole component subtree) and
-`horchestra` (the context, see [values.md](values.md#the-horchestra-context)):
+`pack` (the context, see [values.md](values.md#the-pack-context)):
 
 ```
 KafkaServer {
@@ -255,9 +255,9 @@ JAAS cannot, so it gets the placeholder.
 ## 9. Per-instance files and the identity of a replica
 
 Replicas of a component carry a byte-identical spec. The only thing that
-differs per replica is what the set controller injects: the child's name,
-and — in phase 2 — `HORCHESTRA_INDEX`, `HORCHESTRA_ORDINAL`,
-`HORCHESTRA_INSTANCE` in the environment, plus `${horchestra.index}` in a
+differs per replica is what the target gives each instance — on horchestra
+the child's name, `HORCHESTRA_INDEX`, `HORCHESTRA_ORDINAL`,
+`HORCHESTRA_INSTANCE` in the environment, and `${horchestra.index}` in a
 secret mount's item key.
 
 For a file that must differ per replica (ZooKeeper's `myid`), mark it
@@ -267,13 +267,14 @@ For a file that must differ per replica (ZooKeeper's `myid`), mark it
 MyID string `json:"myid,omitempty" pack:"file=/var/lib/zookeeper/myid,format=text,perInstance"`
 
 func (ZooKeeper) PackCompute() map[string]string {
-    return map[string]string{"/myid": "string(horchestra.ordinal)"}
+    return map[string]string{"/myid": "string(pack.ordinal)"}
 }
 ```
 
 The tool renders the file once per replica into keys `myid.0`, `myid.1`, …
-of one Secret and mounts `myid.${horchestra.index}` as `myid`. A formula
-that reads `horchestra.instance`, `.index` or `.ordinal` is allowed **only**
+of one Secret and mounts `myid.${horchestra.index}` as `myid` (horchestra's
+way; another target delivers each replica its own bytes its own way). A
+formula that reads `pack.instance`, `.index` or `.ordinal` is allowed **only**
 under a `perInstance` file; anywhere else (argv, env, a shared file) the
 check refuses it — that value would not survive the byte-identical rule.
 
@@ -345,7 +346,7 @@ through a composition that binds it.
 ```go
 func (Kafka) PackCompute() map[string]string {
     return map[string]string{
-        "/conf/zookeeper.connect": "peers.zk.instances.map(h, h + ':' + string(peers.zk.ports.client)).join(',') + '/' + horchestra.installation",
+        "/conf/zookeeper.connect": "peers.zk.instances.map(h, h + ':' + string(peers.zk.ports.client)).join(',') + '/' + pack.installation",
         "/conf/listeners":         "'PLAINTEXT://:' + string(values.ports.broker) + ',INTERNAL://:' + string(values.ports.internal)",
         "/heapOpts":               "values.jdk.heapOpts",
     }
@@ -363,7 +364,7 @@ environment ([values.md](values.md#the-cel-environment) has the full table):
 | `common` | the composition's `common` |
 | `me` | `service`, `instances[]`, `replicas`, `ports{}` — names, never addresses |
 | `peers.<role>` | the same about a bound neighbour |
-| `horchestra` | `namespace`, `installation`, `component`, `service`, `replicas`; per instance (§9) also `instance`, `index`, `ordinal` |
+| `pack` | `namespace`, `installation`, `component`, `service`, `replicas`; per instance (§9) also `instance`, `index`, `ordinal` |
 
 Functions: the CEL standard library, the `strings`, `lists` and `math`
 extensions, and two of the tool's own:

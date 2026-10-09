@@ -70,7 +70,7 @@ func (Kafka) PackRoot() packschema.Root {
 
 func (Kafka) PackCompute() map[string]string {
 	return map[string]string{
-		"/conf/zookeeper.connect": "peers.zk.instances.map(h, h + ':' + string(peers.zk.ports.client)).join(',') + '/' + horchestra.installation",
+		"/conf/zookeeper.connect": "peers.zk.instances.map(h, h + ':' + string(peers.zk.ports.client)).join(',') + '/' + pack.installation",
 		"/conf/listeners":         "'PLAINTEXT://:' + string(values.ports.broker) + ',INTERNAL://:' + string(values.ports.internal)",
 		"/heapOpts":               "values.jdk.heapOpts",
 	}

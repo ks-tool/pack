@@ -71,7 +71,7 @@ Every `x-pack-compute` in the composition is collected with the subtree
 the operator wrote are skipped. The rest run in an order where every
 `values.*` a formula reads is already settled — a mutual wait is refused as
 a cycle. A result of `null` leaves the leaf as it was. Per-instance formulas
-(those reading `horchestra.instance`/`index`/`ordinal`) are not run here;
+(those reading `pack.instance`/`index`/`ordinal`) are not run here;
 they run once per replica when the `perInstance` file is rendered.
 
 ## The CEL environment
@@ -83,7 +83,7 @@ they run once per replica when the `perInstance` file is rendered.
 | `common` | the composition's `common` |
 | `me` | `{service, instances, replicas, ports}` of the key |
 | `peers.<role>` | the same for the key the role is bound to; absent when an optional role is unbound |
-| `horchestra` | the context below |
+| `pack` | the context below |
 
 `me.service` is `<installation>-<key>`; `me.instances` are
 `<service>-<i>.<service>.<namespace>` for `x-pack.scale: replicas`, or
@@ -102,10 +102,14 @@ a string — with the node's `type`. Every variable is a dynamic map, so a
 bare `values.x` fixes nothing; its type error surfaces at render, with the
 pointer and the formula's text.
 
-## The `horchestra` context
+## The `pack` context
+
+Where and as what the key is installed — the same for every target; names
+and the namespace are the target's (horchestra's below). Before 2026-10 it
+was called `horchestra`.
 
 ```yaml
-horchestra:
+pack:
   namespace: data
   installation: prod
   component: kafka

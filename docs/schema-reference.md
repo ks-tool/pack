@@ -147,7 +147,7 @@ component is self-contained.
 |---|---|
 | `platform` | the target — the only key under a component whose schema is neither the author's nor the pack's |
 | `common` | the composition |
-| `horchestra` | the tool's context; never in a schema, never in values |
+| `pack` | the tool's context (formulas, templates); never in a schema, never in values |
 
 ## The `pack:"…"` tag
 

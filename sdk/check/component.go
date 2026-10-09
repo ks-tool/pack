@@ -171,7 +171,7 @@ func Run(c Component) ([]Problem, error) {
 			add(ptr, "x-pack-compute yields %s, the node is %s", rt, strings.Join(computeTypes[ptr], "|"))
 		}
 		for _, r := range reads[ptr] {
-			if r == "horchestra.instance" || r == "horchestra.index" || r == "horchestra.ordinal" {
+			if r == "pack.instance" || r == "pack.index" || r == "pack.ordinal" {
 				if owner, ok := insideFile[ptr]; !ok || !perInstance(files, owner) {
 					add(ptr, "x-pack-compute reads %s: replicas are byte-identical, so an instance's identity may only reach a perInstance file", r)
 				}

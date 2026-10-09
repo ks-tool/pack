@@ -43,8 +43,8 @@ type Target interface {
 
 // Names is the one part of a target the render sees: how it names and
 // reaches what it runs. Formulas read it as me and peers (service,
-// instances) and as horchestra.service, horchestra.instance and
-// horchestra.namespace — a pack is rendered once per target, never for
+// instances) and as pack.service, pack.instance and pack.namespace — a pack
+// is rendered once per target, never for
 // "any" target, because a neighbour's address is part of a config file.
 type Names interface {
 	// Service is the stable name of a key as a whole.
@@ -78,7 +78,7 @@ type formula struct {
 	key      string // system key it belongs to
 	ast      *cel.Ast
 	reads    []string
-	instance bool // reads horchestra.instance/index/ordinal — evaluated per replica only
+	instance bool // reads pack.instance/index/ordinal — evaluated per replica only
 }
 
 type render struct {
@@ -428,7 +428,7 @@ func (r *render) collect() error {
 			}
 		}
 		for _, rd := range f.reads {
-			if rd == "horchestra.instance" || rd == "horchestra.index" || rd == "horchestra.ordinal" {
+			if rd == "pack.instance" || rd == "pack.index" || rd == "pack.ordinal" {
 				f.instance = true
 			}
 		}
@@ -521,7 +521,7 @@ func (r *render) blocked(f *formula, pending map[string]*formula) bool {
 }
 
 // eval runs one formula against a document; instance, when non-nil, adds the
-// per-replica fields to the horchestra context.
+// per-replica fields to the pack context.
 func (r *render) eval(f *formula, doc map[string]any, instance map[string]any) (any, error) {
 	sub, _ := get(doc, f.root)
 	keyDoc, _ := get(doc, "/"+f.key)
@@ -531,12 +531,12 @@ func (r *render) eval(f *formula, doc map[string]any, instance map[string]any) (
 	}
 	common, _ := doc["common"].(map[string]any)
 	vars := map[string]any{
-		"values":     orEmpty(sub),
-		"limits":     orEmpty(r.limits[f.key]),
-		"common":     orEmpty(common),
-		"me":         r.me(f.key),
-		"peers":      r.peerVars(f.key),
-		"horchestra": r.horchestra(f.key, instance),
+		"values": orEmpty(sub),
+		"limits": orEmpty(r.limits[f.key]),
+		"common": orEmpty(common),
+		"me":     r.me(f.key),
+		"peers":  r.peerVars(f.key),
+		"pack":   r.packContext(f.key, instance),
 	}
 	return compute.Eval(r.env, f.ast, vars)
 }
@@ -609,7 +609,9 @@ func (r *render) peerVars(key string) map[string]any {
 	return out
 }
 
-func (r *render) horchestra(key string, instance map[string]any) map[string]any {
+// packContext is what formulas and templates read as `pack`: where and as
+// what this key is installed — and, per replica, which one.
+func (r *render) packContext(key string, instance map[string]any) map[string]any {
 	h := map[string]any{
 		"namespace":    r.ctx.Target.Namespace(),
 		"installation": r.ctx.Installation,
@@ -621,7 +623,7 @@ func (r *render) horchestra(key string, instance map[string]any) map[string]any 
 	return h
 }
 
-// instanceVars are the per-replica fields of the horchestra context.
+// instanceVars are the per-replica fields of the pack context.
 func (r *render) instanceVars(key string, i int) map[string]any {
 	return map[string]any{"instance": r.ctx.Target.Instance(key, i), "index": i, "ordinal": i + 1}
 }

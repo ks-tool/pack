@@ -22,7 +22,7 @@ import (
 // facts the target gives about a key's limits, normalised — memory in bytes,
 // cpu in millicores — so that a formula never reads the target's own words
 // (the platform subtree is the target's and is not a variable).
-var Vars = []string{"values", "limits", "common", "me", "peers", "horchestra"}
+var Vars = []string{"values", "limits", "common", "me", "peers", "pack"}
 
 const CostLimit = 1_000_000
 

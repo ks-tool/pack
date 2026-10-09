@@ -62,7 +62,7 @@ func TestResultType(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]string{
-		`string(horchestra.ordinal)`: "string",
+		`string(pack.ordinal)`: "string",
 		`peers.zk.instances.map(h, h + ':' + string(peers.zk.ports.client)).join(',')`: "string",
 		`limits.memory / 2`:         "integer",
 		`values.a + 1`:              "integer",

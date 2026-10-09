@@ -29,13 +29,13 @@ and no placeholder is involved; `perInstance` makes the key
 
 For a file whose node is an object, the object's fields are the top-level
 data; for a scalar node, it is under `value`. In both cases `values` (the
-whole component subtree) and `horchestra` (the context) are available:
+whole component subtree) and `pack` (the context) are available:
 
 ```
 username="{{ .username }}"                       a field of the subtree
 {{ .values.conf.dataDir }}                       any value of the component
-{{ .horchestra.installation }}                   the context
-{{ .horchestra.ordinal }}                        only in a perInstance file
+{{ .pack.installation }}                         the context
+{{ .pack.ordinal }}                              only in a perInstance file
 ```
 
 ## Which format for which application

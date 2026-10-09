@@ -202,7 +202,7 @@ func (r *render) files(key string, comp *bundle.Component, km map[string]any, fi
 				if !ok {
 					return nil, fmt.Errorf("%s: template %q not found", f.ptr, f.node.File.Template)
 				}
-				data := map[string]any{"values": doc, "horchestra": r.horchestra(key, instance)}
+				data := map[string]any{"values": doc, "pack": r.packContext(key, instance)}
 				if m, ok := sub.(map[string]any); ok {
 					maps.Copy(data, m)
 				} else {
