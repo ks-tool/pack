@@ -40,10 +40,11 @@ func usage() {
   pack check [--plain-http] <dir|ref>  author checks on a component directory (schema.json, templates/, image.json),
                                        on a composition directory (its components are the sibling dirs), or on a
                                        pack in a registry (cr://host/repo:tag — schemas and templates are read, no image)
-  pack template --pack <dir|ref> --values <file> --name <installation> [--namespace ns] [-o <dir>] [--plain-http]
-                [--secretProvider generate|env|file:<dir> --secret /key/path/password ...]
-                                       render the ApplicationSet and its config Secrets, no cluster needed
-  pack plan [--from <dir|ref>] --to <dir|ref> --values <file> [--savepoints auto|none|k1,k2] [--no-rollback k1,k2|all] [--strict] [-o plan.yaml]
+  pack template --pack <dir|ref> --values <file> --name <installation> [--target horchestra] [--set k=v ...]
+                [--namespace ns] [-o <dir>] [--plain-http] [--secretProvider generate|env|file:<dir> --secret /key/path/password ...]
+                                       render for a target — horchestra: the ApplicationSet and its config Secrets; no cluster needed
+  pack plan [--from <dir|ref>] --to <dir|ref> --values <file> [--target t] [--set k=v ...] [--savepoints auto|none|k1,k2]
+            [--no-rollback k1,k2|all] [--strict] [-o plan.yaml]
                                        the saga: a first installation, or the upgrade between two versions
   registries: PACK_REGISTRY_USER / PACK_REGISTRY_PASSWORD in the environment for credentials
   pack schema vocabulary|platform      print the schemas the tool ships: the x-pack-* vocabulary, the platform half

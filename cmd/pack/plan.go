@@ -12,7 +12,6 @@ import (
 	"github.com/ks-tool/pack/bundle"
 	"github.com/ks-tool/pack/plan"
 	"github.com/ks-tool/pack/render"
-	"github.com/ks-tool/pack/target/horchestra"
 )
 
 func runPlan(args []string) error {
@@ -22,7 +21,7 @@ func runPlan(args []string) error {
 	plainHTTP := fs.Bool("plain-http", false, "the registry speaks plain HTTP")
 	valuesFile := fs.String("values", "", "values document (YAML)")
 	name := fs.String("name", "release", "installation name")
-	namespace := fs.String("namespace", "default", "namespace")
+	tf := addTargetFlags(fs)
 	savepoints := fs.String("savepoints", "", "override the composition's savepoints: auto | none | key1,key2")
 	noRollback := fs.String("no-rollback", "", "keys where an automatic rollback stops (\"all\" rolls nothing back)")
 	strict := fs.Bool("strict", false, "refuse a plan with an irreversible step")
@@ -46,7 +45,11 @@ func runPlan(args []string) error {
 		}
 	}
 	v.Skip = append(v.Skip, skip...)
-	ctx := render.Context{Installation: *name, Names: horchestra.Context{Installation: *name, Namespace: *namespace}.Names()}
+	inst, err := tf.configure(*name)
+	if err != nil {
+		return err
+	}
+	ctx := render.Context{Installation: *name, Names: inst.Names()}
 	toB, err := openPack(*to, *plainHTTP)
 	if err != nil {
 		return fmt.Errorf("--to: %w", err)

@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/ks-tool/pack/render"
-	"github.com/ks-tool/pack/target/horchestra"
 )
 
 type multiFlag []string
@@ -25,8 +24,8 @@ func runTemplate(args []string) error {
 	plainHTTP := fs.Bool("plain-http", false, "the registry speaks plain HTTP")
 	valuesFile := fs.String("values", "", "values document (YAML)")
 	name := fs.String("name", "", "installation name — the prefix of everything it creates")
-	namespace := fs.String("namespace", "default", "namespace the set is written to")
-	outDir := fs.String("o", "", "write applicationset.yaml, secrets/*.yaml and report.yaml here; stdout when empty")
+	tf := addTargetFlags(fs)
+	outDir := fs.String("o", "", "write the target's files here (horchestra: applicationset.yaml, secrets/*.yaml, report.yaml); its objects to stdout when empty")
 	provider := fs.String("secretProvider", "", "where the credentials the tool creates come from: generate | env | file:<dir>")
 
 	var secrets multiFlag
@@ -59,51 +58,46 @@ func runTemplate(args []string) error {
 	}
 	v.Skip = append(v.Skip, skip...)
 
-	ctx := horchestra.Context{Installation: *name, Namespace: *namespace}
-	credentials, err := render.Provision(b, &v, ctx.Installation, render.Provider(*provider), secrets)
+	inst, err := tf.configure(*name)
 	if err != nil {
 		return err
 	}
-
-	out, err := horchestra.Render(b, v, ctx)
+	credentials, err := render.Provision(b, &v, *name, render.Provider(*provider), secrets)
 	if err != nil {
 		return err
 	}
-	out.Secrets = append(horchestra.Credentials(credentials, ctx), out.Secrets...)
-
-	setYAML, err := yaml.Marshal(out.Set)
+	rel, err := render.Render(b, v, render.Context{Installation: *name, Names: inst.Names()})
+	if err != nil {
+		return err
+	}
+	out, err := inst.Convert(rel, credentials)
 	if err != nil {
 		return err
 	}
 
 	if len(*outDir) == 0 {
-		os.Stdout.Write(setYAML)
-		for _, s := range out.Secrets {
-			b, _ := yaml.Marshal(s)
-			fmt.Println("---")
-			os.Stdout.Write(b)
+		first := true
+		for _, f := range out.Files {
+			if !f.Stream {
+				continue
+			}
+			if !first {
+				fmt.Println("---")
+			}
+			first = false
+			os.Stdout.Write(f.Data)
 		}
 		return nil
 	}
-
-	if err := os.MkdirAll(filepath.Join(*outDir, "secrets"), 0o755); err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(filepath.Join(*outDir, "applicationset.yaml"), setYAML, 0o644); err != nil {
-		return err
-	}
-	for _, s := range out.Secrets {
-		b, _ := yaml.Marshal(s)
-		if err := os.WriteFile(filepath.Join(*outDir, "secrets", s.Metadata.Name+".yaml"), b, 0o600); err != nil {
+	for _, f := range out.Files {
+		p := filepath.Join(*outDir, filepath.FromSlash(f.Path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, f.Data, f.Mode); err != nil {
 			return err
 		}
 	}
-	rep, _ := yaml.Marshal(out.Report)
-	if err := os.WriteFile(filepath.Join(*outDir, "report.yaml"), rep, 0o644); err != nil {
-		return err
-	}
-
-	fmt.Printf("wrote %s: applicationset.yaml, %d secret(s), report.yaml\n", *outDir, len(out.Secrets))
+	fmt.Printf("wrote %s: %d file(s) for %s\n", *outDir, len(out.Files), *tf.name)
 	return nil
 }
