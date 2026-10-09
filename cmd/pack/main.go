@@ -21,6 +21,8 @@ func main() {
 		err = runPlan(os.Args[2:])
 	case "apply":
 		err = runApply(os.Args[2:])
+	case "rollback":
+		err = runRollback(os.Args[2:])
 	case "schema":
 		err = runSchema(os.Args[2:])
 	case "help", "-h", "--help":
@@ -53,6 +55,9 @@ func usage() {
                                        install or upgrade: the target says what is installed, pack drives the saga
                                        step by step and rolls a failed unit back; an unfinished saga continues from
                                        its last savepoint (--from-start: from its first step); the target must perform steps
+  pack rollback --name <installation> [--target t] [--set k=v ...] [--dry-run]
+                                       an unfinished saga: undo every step of it in effect, savepointed units too;
+                                       a finished one: a saga back to the version it replaced
   registries: PACK_REGISTRY_USER / PACK_REGISTRY_PASSWORD in the environment for credentials
   pack schema vocabulary|platform [--target t]
                                        print the x-pack-* vocabulary, or the schema a target gives the platform half

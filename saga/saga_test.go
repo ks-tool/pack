@@ -264,3 +264,40 @@ func TestRollbackRunsDowngradeHooks(t *testing.T) {
 		t.Errorf("rolled back: %s", got)
 	}
 }
+
+// pack rollback of a saga that failed in unit 2: unit 2 was rolled back
+// already; unit 1, behind its savepoint, is undone too — the installation
+// is as before the saga.
+func TestUndoUnfinished(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{fail: "apply c c:2"}
+	if _, err := run(t, m, p, from, to); err == nil {
+		t.Fatal("the saga must fail")
+	}
+	rec, _ := Read(m)
+	m.log, m.fail = nil, ""
+	r := &Run{Plan: p, From: from, To: to, Exec: m, Record: rec}
+	if err := r.Undo(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"undo apply a a:1"}; !reflect.DeepEqual(m.log, want) {
+		t.Errorf("undone:\n got %v\nwant %v", m.log, want)
+	}
+	got, _ := Read(m)
+	if got.State != Installed || got.Pack != "old" || got.Version != "1" || got.Saga != nil {
+		t.Errorf("record after undo: %+v", got)
+	}
+}
+
+// A finished saga records what it replaced: where pack rollback goes.
+func TestPreviousIsRecorded(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{}
+	rec, err := run(t, m, p, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Previous == nil || rec.Previous.Pack != "old" || rec.Previous.Version != "1" {
+		t.Errorf("previous: %+v", rec.Previous)
+	}
+}

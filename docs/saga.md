@@ -185,7 +185,7 @@ Policy is set by flags **before** the start and recorded with the saga:
 After a rollback the record reports the failed step, the error, what was
 undone and where it stopped; running `pack apply` again continues the saga
 from that unit's savepoint ([Execution](#execution)); `pack rollback`
-undoes committed units by hand with the reverse plan. A failed
+undoes the committed units too. A failed
 compensation is the worst state and is reported as such.
 
 ## Execution
@@ -236,4 +236,10 @@ target without it renders (`pack template`) and refuses `apply`.
    unfinished saga is refused; `--from-start` runs the saga from its first
    step, or starts the new one over the unfinished.
 
-Not yet: `pack rollback` of committed units.
+8. **`pack rollback`** takes an installation back. A saga that did not
+   finish is undone whole — every step of it still in effect, unit by unit
+   from the last, the units behind savepoints too, whatever the rollback
+   policy said — and the record says the version before it is installed
+   (an undone first installation leaves nothing installed). A finished
+   saga recorded what it replaced (`previous`): rollback is a saga back to
+   that version, planned and performed like any other.

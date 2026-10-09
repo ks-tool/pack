@@ -35,6 +35,16 @@ type Record struct {
 	// and Saga says what was rolled back.
 	State string    `json:"state"`
 	Saga  *Progress `json:"saga,omitempty"`
+	// Previous is what the last finished saga replaced: where pack rollback
+	// goes when no saga is unfinished.
+	Previous *Installation `json:"previous,omitempty"`
+}
+
+// Installation is one version as it was installed.
+type Installation struct {
+	Pack    string        `json:"pack"`
+	Version string        `json:"version,omitempty"`
+	Values  render.Values `json:"values"`
 }
 
 const (
@@ -156,8 +166,46 @@ func (r *Run) Execute(ctx context.Context) error {
 		return fmt.Errorf("step %d (%s %s) failed: %v; rolled back: %s", s.N, s.Kind, s.Key, err, rolledBack(r.Record.Saga.RolledBack))
 	}
 	sg := r.Record.Saga
+	if len(r.Record.Pack) > 0 && (r.Record.Pack != sg.Pack || r.Record.Version != sg.Version || !sameValues(r.Record.Values, sg.Values)) {
+		r.Record.Previous = &Installation{Pack: r.Record.Pack, Version: r.Record.Version, Values: r.Record.Values}
+	}
 	r.Record.Pack, r.Record.Version, r.Record.Values = sg.Pack, sg.Version, sg.Values
 	r.Record.State, r.Record.Saga = Installed, nil
+	return Write(r.Exec, r.Record)
+}
+
+func sameValues(a, b render.Values) bool {
+	ra, err1 := json.Marshal(a)
+	rb, err2 := json.Marshal(b)
+	return err1 == nil && err2 == nil && string(ra) == string(rb)
+}
+
+// Undo takes an unfinished saga back: every step of it still in effect is
+// undone, unit by unit from the last, whatever the rollback policy — the
+// units behind savepoints too. The record then says the version installed
+// before the saga is installed, as it was.
+func (r *Run) Undo(ctx context.Context) error {
+	if r.Events == nil {
+		r.Events = func(string) {}
+	}
+	if !r.Record.Unfinished() {
+		return fmt.Errorf("no unfinished saga to undo")
+	}
+	units := slices.Clone(r.Plan.Units)
+	slices.Reverse(units)
+	for _, u := range units {
+		if err := r.undoUnit(ctx, u, func(s plan.Step) bool { return r.done(s.N) }, ""); err != nil {
+			_ = Write(r.Exec, r.Record)
+			return err
+		}
+	}
+	if len(r.Record.Saga.Done) > 0 {
+		return fmt.Errorf("steps %v are in effect but in no unit of the plan: the record does not match it", r.Record.Saga.Done)
+	}
+	r.Record.State, r.Record.Saga = Installed, nil
+	if len(r.Record.Pack) == 0 {
+		r.Record.State = "" // a first installation taken back: nothing is installed
+	}
 	return Write(r.Exec, r.Record)
 }
 
