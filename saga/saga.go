@@ -45,16 +45,24 @@ const (
 
 // Progress is a saga under way, or the last one that failed.
 type Progress struct {
-	Pack       string        `json:"pack"`
-	Version    string        `json:"version,omitempty"`
-	Values     render.Values `json:"values"`
-	Policy     plan.Policy   `json:"policy"`
-	Done       []int         `json:"done,omitempty"`
-	Failed     int           `json:"failed,omitempty"`
-	Error      string        `json:"error,omitempty"`
-	RolledBack []string      `json:"rolledBack,omitempty"` // steps undone, as "<kind> <key>"
-	Started    time.Time     `json:"started"`
+	Pack    string        `json:"pack"`
+	Version string        `json:"version,omitempty"`
+	Values  render.Values `json:"values"`
+	// Given is the values document as the operator gave it — before the
+	// tool wrote references to the credentials it provisioned: what the same
+	// command gives again when it continues the saga.
+	Given  render.Values `json:"given"`
+	Policy plan.Policy   `json:"policy"`
+	// Done are the steps that are in effect: performed and not undone.
+	Done       []int     `json:"done,omitempty"`
+	Failed     int       `json:"failed,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	RolledBack []string  `json:"rolledBack,omitempty"` // steps undone, as "<kind> <key>", in order
+	Started    time.Time `json:"started"`
 }
+
+// Unfinished reports whether the record holds a saga that did not end.
+func (r *Record) Unfinished() bool { return r != nil && r.State != Installed && r.Saga != nil }
 
 // Read returns the target's record of the installation; nil when nothing is installed.
 func Read(x target.Executor) (*Record, error) {
@@ -92,9 +100,12 @@ type Run struct {
 	Events func(string)
 }
 
-// Execute performs the plan step by step. On success the record says the new
-// version is installed; on a failure the step's rollback unit is rolled back
-// and the record says what failed and what was undone.
+// Execute performs the plan step by step. A saga the record shows unfinished
+// is continued from its last savepoint: the steps in effect of the unit it
+// stopped in are undone, and it runs again from that unit's first step —
+// a unit is all or nothing. On success the record says the new version is
+// installed; on a failure the step's unit is rolled back and the record
+// says what failed and what was undone.
 func (r *Run) Execute(ctx context.Context) error {
 	if r.Events == nil {
 		r.Events = func(string) {}
@@ -102,17 +113,25 @@ func (r *Run) Execute(ctx context.Context) error {
 	if r.Record == nil || r.Record.Saga == nil {
 		return fmt.Errorf("a saga needs its record and where it goes (Record.Saga)")
 	}
+	start := 1
+	if len(r.Record.Saga.Done) > 0 {
+		var err error
+		if start, err = r.resume(ctx); err != nil {
+			return err
+		}
+	}
 	r.Record.State = InProgress
 	if err := Write(r.Exec, r.Record); err != nil {
 		return fmt.Errorf("record the saga: %w", err)
 	}
-	done := map[int]bool{}
 	for _, s := range r.Plan.Steps {
+		if s.N < start {
+			continue
+		}
 		r.Events(strings.TrimSpace(fmt.Sprintf("%d. %s %s %s", s.N, s.Key, s.Kind, s.Name)))
 		err := r.step(ctx, r.forward(s))
 		if err == nil {
-			done[s.N] = true
-			r.Record.Saga.Done = append(r.Record.Saga.Done, s.N)
+			r.setDone(s.N, true)
 			if err := Write(r.Exec, r.Record); err != nil {
 				return fmt.Errorf("record step %d: %w", s.N, err)
 			}
@@ -121,7 +140,13 @@ func (r *Run) Execute(ctx context.Context) error {
 		r.Record.State = Failed
 		r.Record.Saga.Failed, r.Record.Saga.Error = s.N, err.Error()
 		r.Events(fmt.Sprintf("step %d failed: %v", s.N, err))
-		rbErr := r.rollback(ctx, s, done)
+		var rbErr error
+		if u, ok := unitOf(r.Plan, s.N); ok {
+			performed := func(x plan.Step) bool {
+				return r.done(x.N) || (x.N == s.N && (x.Kind == plan.Apply || x.Kind == plan.Remove))
+			}
+			rbErr = r.undoUnit(ctx, u, performed, u.StopsAt)
+		}
 		if werr := Write(r.Exec, r.Record); werr != nil && rbErr == nil {
 			rbErr = fmt.Errorf("record the failure: %w", werr)
 		}
@@ -134,6 +159,50 @@ func (r *Run) Execute(ctx context.Context) error {
 	r.Record.Pack, r.Record.Version, r.Record.Values = sg.Pack, sg.Version, sg.Values
 	r.Record.State, r.Record.Saga = Installed, nil
 	return Write(r.Exec, r.Record)
+}
+
+// resume finds the unit the saga stopped in — the first step not in effect
+// — undoes what of it is in effect, whatever the rollback policy left, and
+// returns its first step. Every step before it must be in effect: the units
+// behind the savepoint.
+func (r *Run) resume(ctx context.Context) (int, error) {
+	first := 0
+	for _, s := range r.Plan.Steps {
+		if !r.done(s.N) {
+			first = s.N
+			break
+		}
+	}
+	if first == 0 {
+		return len(r.Plan.Steps) + 1, nil // everything in effect: only the record is left to write
+	}
+	u, ok := unitOf(r.Plan, first)
+	if !ok {
+		return 0, fmt.Errorf("step %d is in no unit of the plan", first)
+	}
+	for _, s := range r.Plan.Steps {
+		if s.N < u.From && !r.done(s.N) {
+			return 0, fmt.Errorf("the saga's record does not match the plan: step %d, before the savepoint, is not in effect", s.N)
+		}
+	}
+	r.Events(fmt.Sprintf("continuing from the savepoint before step %d", u.From))
+	if err := r.undoUnit(ctx, u, func(s plan.Step) bool { return r.done(s.N) }, ""); err != nil {
+		_ = Write(r.Exec, r.Record)
+		return 0, fmt.Errorf("undo the unfinished unit: %w", err)
+	}
+	r.Record.Saga.Failed, r.Record.Saga.Error = 0, ""
+	return u.From, nil
+}
+
+func (r *Run) done(n int) bool { return slices.Contains(r.Record.Saga.Done, n) }
+
+func (r *Run) setDone(n int, in bool) {
+	d := slices.DeleteFunc(r.Record.Saga.Done, func(x int) bool { return x == n })
+	if in {
+		d = append(d, n)
+		slices.Sort(d)
+	}
+	r.Record.Saga.Done = d
 }
 
 func rolledBack(steps []string) string {
@@ -190,28 +259,23 @@ func unit(rel *render.Release, key string) *render.Unit {
 	return nil
 }
 
-// rollback undoes the failed step's unit: its keys in RollbackOrder, up to
-// StopsAt. For a key, in reverse order of its steps: a hook's compensation;
-// an apply undone by the previous unit, or — the key was added — by its
-// removal; a remove undone by applying the previous unit; a key stopped for
-// an exclusive hook and never applied started again from the previous unit.
-// The failed step counts as performed for an apply or a remove — it may have
-// half-happened — and never for a hook.
-func (r *Run) rollback(ctx context.Context, failed plan.Step, done map[int]bool) error {
-	u, ok := unitOf(r.Plan, failed.N)
-	if !ok || u.StopsAt == "*" {
+// undoUnit undoes what of a unit is performed: its keys in RollbackOrder, up
+// to stopsAt ("*" — nothing). For a key, in reverse order of its steps: a
+// hook's compensation; an apply undone by the previous unit, or — the key
+// was added — by its removal; a remove undone by applying the previous unit;
+// a key stopped for an exclusive hook and never applied started again from
+// the previous unit. Each undone step leaves Done, and the record is written.
+func (r *Run) undoUnit(ctx context.Context, u plan.Unit, performed func(plan.Step) bool, stopsAt string) error {
+	if stopsAt == "*" {
 		return nil
 	}
-	attempted := func(s plan.Step) bool {
-		return done[s.N] || (s.N == failed.N && (s.Kind == plan.Apply || s.Kind == plan.Remove))
-	}
 	for _, key := range u.RollbackOrder {
-		if key == u.StopsAt {
+		if key == stopsAt {
 			break
 		}
 		var steps []plan.Step
 		for _, s := range r.Plan.Steps {
-			if s.Key == key && s.N >= u.From && s.N <= u.To && attempted(s) {
+			if s.Key == key && s.N >= u.From && s.N <= u.To && performed(s) {
 				steps = append(steps, s)
 			}
 		}
@@ -219,14 +283,17 @@ func (r *Run) rollback(ctx context.Context, failed plan.Step, done map[int]bool)
 		applied := slices.ContainsFunc(steps, func(s plan.Step) bool { return s.Kind == plan.Apply })
 		for _, s := range steps {
 			st, undo := r.undo(s, applied)
-			if !undo {
-				continue
+			if undo {
+				r.Events(strings.TrimSpace(fmt.Sprintf("rollback: %s %s %s", key, st.Kind, st.Name)))
+				if err := r.step(ctx, st); err != nil {
+					return fmt.Errorf("undo step %d (%s %s): %w", s.N, s.Kind, key, err)
+				}
+				r.Record.Saga.RolledBack = append(r.Record.Saga.RolledBack, st.Kind+" "+key)
 			}
-			r.Events(strings.TrimSpace(fmt.Sprintf("rollback: %s %s %s", key, st.Kind, st.Name)))
-			if err := r.step(ctx, st); err != nil {
-				return fmt.Errorf("undo step %d (%s %s): %w", s.N, s.Kind, key, err)
+			r.setDone(s.N, false)
+			if err := Write(r.Exec, r.Record); err != nil {
+				return fmt.Errorf("record the undo of step %d: %w", s.N, err)
 			}
-			r.Record.Saga.RolledBack = append(r.Record.Saga.RolledBack, st.Kind+" "+key)
 		}
 	}
 	return nil

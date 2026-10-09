@@ -158,3 +158,83 @@ func TestFailedHook(t *testing.T) {
 		t.Errorf("steps:\n got %v\nwant %v", m.log, want)
 	}
 }
+
+// resumeWith runs the same saga again over the record m keeps.
+func resumeWith(t *testing.T, m *memory, p *plan.Plan, from, to *render.Release) (*Record, error) {
+	t.Helper()
+	rec, err := Read(m)
+	if err != nil || rec == nil {
+		t.Fatalf("no record to resume: %v", err)
+	}
+	m.log = nil
+	r := &Run{Plan: p, From: from, To: to, Exec: m, Record: rec}
+	err = r.Execute(context.Background())
+	got, _ := Read(m)
+	return got, err
+}
+
+// A saga that failed in unit 2 and was rolled back continues from unit 2's
+// first step: unit 1, behind the savepoint, is not performed again.
+func TestResumeAfterFailure(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{fail: "apply c c:2"}
+	if _, err := run(t, m, p, from, to); err == nil {
+		t.Fatal("the saga must fail")
+	}
+	m.fail = ""
+	rec, err := resumeWith(t, m, p, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2", "wait c"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("resumed steps:\n got %v\nwant %v", m.log, want)
+	}
+	if rec.State != Installed || rec.Version != "2" || rec.Saga != nil {
+		t.Errorf("record after the resumed saga: %+v", rec)
+	}
+}
+
+// A saga cut short inside unit 2 — no rollback ran — has the unit's
+// performed steps undone first, then the unit runs from its start.
+func TestResumeAfterCrash(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{}
+	rec := &Record{Pack: "old", Version: "1", State: InProgress,
+		Saga: &Progress{Pack: "new", Version: "2", Done: []int{1, 2, 3, 4}}}
+	if err := Write(m, rec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resumeWith(t, m, p, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"undo hook b b:2", "undo remove b",
+		"apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2", "wait c"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("resumed steps:\n got %v\nwant %v", m.log, want)
+	}
+	if got.State != Installed {
+		t.Errorf("record: %+v", got)
+	}
+}
+
+// What the rollback policy left in place (--no-rollback b) is undone when
+// the saga continues: the unit is all or nothing.
+func TestResumeUndoesWhatThePolicyLeft(t *testing.T) {
+	p, from, to := upgrade()
+	p.Units[1].StopsAt = "b"
+	m := &memory{fail: "wait c"}
+	if _, err := run(t, m, p, from, to); err == nil {
+		t.Fatal("the saga must fail")
+	}
+	m.fail = ""
+	if _, err := resumeWith(t, m, p, from, to); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"undo hook b b:2", "undo remove b",
+		"apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2", "wait c"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("resumed steps:\n got %v\nwant %v", m.log, want)
+	}
+}

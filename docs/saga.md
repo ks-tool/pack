@@ -182,10 +182,11 @@ Policy is set by flags **before** the start and recorded with the saga:
 | `--no-rollback all` | roll nothing back; stop on the failed step |
 | `--strict` | refuse a plan with an irreversible step |
 
-After a rollback the release reports the failed step, the hook's exit code,
-what was undone and where it stopped; `--resume` retries the unit from its
-savepoint; `pack rollback` undoes committed units by hand with the reverse
-plan. A failed compensation is the worst state and is reported as such.
+After a rollback the record reports the failed step, the error, what was
+undone and where it stopped; running `pack apply` again continues the saga
+from that unit's savepoint ([Execution](#execution)); `pack rollback`
+undoes committed units by hand with the reverse plan. A failed
+compensation is the worst state and is reported as such.
 
 ## Execution
 
@@ -218,10 +219,19 @@ target without it renders (`pack template`) and refuses `apply`.
    if it was an `apply` or a `remove` — it may have half-happened — and
    never if it was a hook. Units behind a savepoint stay.
 6. The record says `installed` with the new version, or `failed` with the
-   step, the error and what was undone. A saga that did not finish stops
-   the next `apply` until the operator, having looked at the target,
-   passes `--force` to plan from the recorded version.
+   step, the error and what was undone.
+7. **`pack apply` always starts from a savepoint.** A saga the record shows
+   unfinished — failed, or cut short with no rollback — is continued by the
+   same command: what of the unit it stopped in is still in effect is
+   undone (whatever the rollback policy left there too — a unit is all or
+   nothing), and the saga runs again from that unit's first step; the units
+   behind the savepoint are not performed again. The same command means
+   the same `--pack`, values as given and rollback policy — the record
+   keeps them; the credentials the tool provisions are provisioned again,
+   since the record never holds a value. A different command over an
+   unfinished saga is refused; `--from-start` runs the saga from its first
+   step, or starts the new one over the unfinished.
 
 Not yet: running the `preDowngrade`/`postDowngrade` hooks while rolling an
-`apply` back (the previous unit is applied as it is), `--resume` from the
-last savepoint, and `pack rollback` of committed units.
+`apply` back (the previous unit is applied as it is), and `pack rollback`
+of committed units.

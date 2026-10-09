@@ -39,7 +39,11 @@ func TestApply(t *testing.T) {
 	}
 
 	apply := func(values string, env ...string) (string, error) {
-		cmd := exec.Command(filepath.Join(bin, "pack"), "apply", "--pack", adh, "--values", values, "--name", "prod", "--target", "fake")
+		args := []string{"apply", "--pack", adh, "--values", values, "--name", "prod", "--target", "fake"}
+		for len(env) > 0 && strings.HasPrefix(env[0], "--") {
+			args, env = append(args, env[0]), env[1:]
+		}
+		cmd := exec.Command(filepath.Join(bin, "pack"), args...)
 		cmd.Env = append(append(os.Environ(), "PACK_FAKE_DIR="+state, "PACK_PROVIDER_PATH="), env...)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
@@ -105,8 +109,30 @@ func TestApply(t *testing.T) {
 		t.Errorf("record after a failure: %+v", r)
 	}
 
-	// a saga that did not finish stops the next one, until --force
-	if out, err := apply(values); err == nil || !strings.Contains(out, "did not finish") {
-		t.Errorf("an unfinished saga must be reported, not planned over: %v\n%s", err, out)
+	// another command over the unfinished saga is refused …
+	if out, err := apply(changed); err == nil || !strings.Contains(out, "did not finish") {
+		t.Errorf("another saga over an unfinished one must be refused: %v\n%s", err, out)
+	}
+	// … the same one continues it from the savepoint: kafka's unit again
+	if out, err := apply(values); err != nil {
+		t.Fatalf("resume: %v\n%s", err, out)
+	}
+	if j := strings.Join(journal(), "; "); !strings.HasPrefix(j, "apply kafka") || strings.Contains(j, "zookeeper") {
+		t.Errorf("the resumed saga performed: %s", j)
+	}
+	if r := record(); r.State != saga.Installed || r.Saga != nil {
+		t.Errorf("record after the resumed saga: %+v", r)
+	}
+
+	// --from-start over an unfinished saga starts a new one from its first step
+	if out, err := apply(changed, "PACK_FAKE_FAIL=wait kafka"); err == nil {
+		t.Fatalf("the failing saga must fail:\n%s", out)
+	}
+	journal()
+	if out, err := apply(changed, "--from-start"); err != nil {
+		t.Fatalf("from start: %v\n%s", err, out)
+	}
+	if j := strings.Join(journal(), "; "); !strings.HasPrefix(j, "apply kafka") {
+		t.Errorf("--from-start performed: %s", j)
 	}
 }
