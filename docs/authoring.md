@@ -448,7 +448,7 @@ kafka/
 `docker image inspect <ref> | jq '.[0]'` (the `Config` key is what matters)
 or from the image's config blob.
 
-`pack.yaml` doubles as the source of `spec.image`: its `cr://…` item is the
+`pack.yaml` doubles as the source of `spec.image`: its `oci://…` item is the
 reference the output carries (`image.ref` beside it is the fallback).
 [artifacts.md](artifacts.md) describes the file.
 

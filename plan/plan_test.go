@@ -36,7 +36,7 @@ func previousVersion(t *testing.T) string {
 			if items, ok := doc["items"].([]any); ok && name != "adh" {
 				for _, it := range items {
 					im := it.(map[string]any)
-					if from, ok := im["from"].(string); ok && strings.HasPrefix(from, "cr://") {
+					if from, ok := im["from"].(string); ok && strings.HasPrefix(from, "oci://") {
 						im["from"] = from[:strings.LastIndex(from, ":")+1] + v
 					}
 				}

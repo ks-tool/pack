@@ -15,7 +15,7 @@ is oci-packer's own.
 type: application/vnd.horchestra.component.v1+json
 annotations: {io.horchestra.name: kafka, io.horchestra.version: "3.7.1"}
 items:
-  - from: cr://registry.example/images/kafka:3.7.1     # the image: mounted from the same registry, not copied
+  - from: oci://registry.example/images/kafka:3.7.1     # the image: mounted from the same registry, not copied
     platform: linux/arm64
   - from: file://schema.json
     type: application/vnd.horchestra.component.schema.v1+json
@@ -24,10 +24,10 @@ items:
 ```
 
 ```sh
-oci-packer -f pack.yaml cr://registry.example/components/kafka:3.7.1
+oci-packer -f pack.yaml oci://registry.example/components/kafka:3.7.1
 ```
 
-What oci-packer builds: any `cr://` or `platform` item makes the artifact
+What oci-packer builds: any `oci://` or `platform` item makes the artifact
 an **index**, one member per item. The image item becomes the image's own
 manifest as a member (with its `platform`); the schema and the templates
 become one manifest each, tagged by their `type`. The image must already be
@@ -36,11 +36,11 @@ manifest and blobs are copied into the artifact's repository.
 
 The tool reads the same file for two things: the component's **name and
 version** (the annotations) and the **image reference** for `spec.image`
-(the `cr://` item, scheme stripped). Without a `pack.yaml`, `image.ref`
+(the `oci://` item, scheme stripped). Without a `pack.yaml`, `image.ref`
 beside the schema supplies the reference and the directory name supplies
 the name.
 
-A library is built the same way; its `cr://` item is the image whose layers
+A library is built the same way; its `oci://` item is the image whose layers
 consumers mount.
 
 ## A composition's artifact
@@ -53,10 +53,10 @@ annotations: {io.horchestra.name: adh, io.horchestra.version: "2.1.0"}
 items:
   - from: file://schema.json
     type: application/vnd.horchestra.pack.schema.v1+json
-  - from: cr://registry.example/components/zookeeper:3.9.2   # every component and library, once per name
-  - from: cr://registry.example/components/kafka:3.7.1
-  - from: cr://registry.example/components/postgres:16.3
-  - from: cr://registry.example/components/jdk:21.0.4
+  - from: oci://registry.example/components/zookeeper:3.9.2   # every component and library, once per name
+  - from: oci://registry.example/components/kafka:3.7.1
+  - from: oci://registry.example/components/postgres:16.3
+  - from: oci://registry.example/components/jdk:21.0.4
 ```
 
 The pack pins the **digest** of every member; the composition's schema
@@ -72,9 +72,9 @@ The tool reads a pack **straight from the registry** — its own small client
 (`pack/registry`), no `oci-packer`, no layout:
 
 ```sh
-pack check    --plain-http cr://registry.example/bundles/adh:4.3.0
-pack template --plain-http --pack cr://registry.example/bundles/adh:4.3.0 --values values.yaml --name adh --namespace demo -o ./out
-pack plan     --plain-http --to   cr://registry.example/bundles/adh:4.3.0 --values values.yaml
+pack check    --plain-http oci://registry.example/bundles/adh:4.3.0
+pack template --plain-http --pack oci://registry.example/bundles/adh:4.3.0 --values values.yaml --name adh --namespace demo -o ./out
+pack plan     --plain-http --to   oci://registry.example/bundles/adh:4.3.0 --values values.yaml
 ```
 
 What it fetches: the pack's index; the composition schema (the first layer
@@ -85,7 +85,7 @@ and the mounted image's **config** (entrypoint, cmd, env — a few KB).
 **Never an image layer**: `spec.image` in the output is
 `<host>/<pack repo>@<digest>`, and pulling it is horchestra's job.
 
-`cr://` may be omitted (`host/repo:tag`); `@sha256:…` pins a digest;
+`oci://` may be omitted (`host/repo:tag`); `@sha256:…` pins a digest;
 `--plain-http` for a registry without TLS; `PACK_REGISTRY_USER` /
 `PACK_REGISTRY_PASSWORD` for one that wants credentials (basic, or a bearer
 token from the realm it names). A lone component is renderable by reference

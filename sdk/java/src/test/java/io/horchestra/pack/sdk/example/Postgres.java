@@ -45,8 +45,8 @@ public final class Postgres implements Component {
     @Override
     public Meta meta() {
         return new Meta("postgres", "16.3")
-                .image("cr://localhost:5001/images/postgres:16.3")
-                .artifact("cr://localhost:5001/components/postgres");
+                .image("oci://localhost:5001/images/postgres:16.3")
+                .artifact("oci://localhost:5001/components/postgres");
     }
 
     @Override

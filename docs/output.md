@@ -29,7 +29,7 @@ spec:
     metadata: {labels: {horchestra.io/component: kafka}}
     scale: {replicas: 3}                       # x-pack.scale: replicas → platform.replicas; single → no scale
     spec:
-      image: localhost:5001/images/kafka:3.7.1 # pack.yaml's cr:// item
+      image: localhost:5001/images/kafka:3.7.1 # pack.yaml's oci:// item
       command: […]                             # image.json Entrypoint (or x-pack.command)
       args: [--override, min.insync.replicas=2]   # image.json Cmd ⊕ arg= leaves in author order
       env:
@@ -66,7 +66,7 @@ spec:
 |---|---|
 | `name`, `metadata.labels[horchestra.io/component]` | the composition key |
 | `scale.replicas` | `platform.replicas` when `x-pack.scale` is `replicas` |
-| `spec.image` | the component's `pack.yaml` (`cr://` item) or `image.ref` |
+| `spec.image` | the component's `pack.yaml` (`oci://` item) or `image.ref` |
 | `spec.command`, `spec.args` | `image.json` Entrypoint/Cmd, or `x-pack.command`; then every `arg=` leaf in declaration order |
 | `spec.env` | `env=` leaves (string → `value`, Secret → `secretRef`), then `platform.env` |
 | `spec.ports` | the `ports` object (`const`), sorted by name |

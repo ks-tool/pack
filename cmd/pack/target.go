@@ -33,7 +33,7 @@ func addTargetFlags(fs *flag.FlagSet) *targetFlags {
 	tf := &targetFlags{
 		config:    fs.String("config", "", "the environment: a .yaml or .json file — target, provider, vault.addr and vault.paths (read with "+environment.EnvVaultToken+"), and any setting of the target; all of it, Vault's KV included, goes to the provider"),
 		name:      fs.String("target", "", "the system to render for, over the environment's (default "+defaultTarget+"); its provider pack-provider-<target> is run ("+provider.EnvPath+", beside pack, PATH)"),
-		provider:  fs.String("provider", "", "the target's provider, over the environment's: a binary's path, or a container image as cr://<host>/<repo>:<tag> run with podman or docker ("+provider.EnvRuntime+")"),
+		provider:  fs.String("provider", "", "the target's provider, over the environment's: a binary's path, or a container image as oci://<host>/<repo>:<tag> run with podman or docker ("+provider.EnvRuntime+")"),
 		namespace: fs.String("namespace", "", "shorthand for --set namespace=<ns>"),
 	}
 	fs.Var(&tf.settings, "set", "a setting, key=value, over the environment's file and Vault; repeatable")

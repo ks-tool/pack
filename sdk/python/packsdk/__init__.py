@@ -16,7 +16,7 @@ ready: Platform (the platform half — its schema is the target's), Scale, Claim
         platform: Platform = Platform.sized("500m", "512Mi")
         conf: Conf = file(Conf(), path="/etc/postgresql/postgresql.conf", format="properties")
 
-        meta = Meta(name="postgres", version="16.3", image="cr://…/postgres:16.3", artifact="cr://…/components/postgres")
+        meta = Meta(name="postgres", version="16.3", image="oci://…/postgres:16.3", artifact="oci://…/components/postgres")
 
         def root(self): return Root(scale=Scale.SINGLE, readiness=Readiness(tcp="pg"))
         def compute(self): return {"/conf/shared_buffers": "…"}

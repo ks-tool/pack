@@ -47,8 +47,8 @@ var templates embed.FS
 
 func Defaults() PgInit { return PgInit{Workload: sdk.Single("100m", "128Mi"), DB: DB{User: "hive"}} }
 func (PgInit) Meta() sdk.Meta {
-    return sdk.Meta{Name: "pg-init", Version: "4.3.0", Image: "cr://10.92.16.25:5000/ee/adh/aio:4.3.0",
-        Artifact: "cr://10.92.16.25:5000/ee/adh/pg-init", Templates: templates, TemplatesDir: "templates"}
+    return sdk.Meta{Name: "pg-init", Version: "4.3.0", Image: "oci://10.92.16.25:5000/ee/adh/aio:4.3.0",
+        Artifact: "oci://10.92.16.25:5000/ee/adh/pg-init", Templates: templates, TemplatesDir: "templates"}
 }
 func (PgInit) PackRoot() packschema.Root { return packschema.Root{RestartPolicy: "Never", Peers: …} }
 ```
@@ -76,7 +76,7 @@ class Postgres(Component):
     superuser: Superuser = default_factory(Superuser)
     conf: Conf = file(Conf(), path="/etc/postgresql/postgresql.conf", format="properties")
 
-    meta = Meta(name="postgres", version="16.3", image="cr://…/postgres:16.3", artifact="cr://…/components/postgres", templates="templates")
+    meta = Meta(name="postgres", version="16.3", image="oci://…/postgres:16.3", artifact="oci://…/components/postgres", templates="templates")
 
     def root(self): return Root(scale=Scale.SINGLE, readiness=Readiness(tcp="pg"), upgrade=Upgrade(from_=">=15"))
     def compute(self): return {"/conf/shared_buffers": "…"}
@@ -97,7 +97,7 @@ public final class Postgres implements Component {
     public Platform platform = Platform.sized("500m", "512Mi");
     @File(path = "/etc/postgresql/postgresql.conf", format = "properties") public Conf conf = new Conf();
 
-    public Meta meta() { return new Meta("postgres", "16.3").image("cr://…/postgres:16.3").artifact("cr://…/components/postgres"); }
+    public Meta meta() { return new Meta("postgres", "16.3").image("oci://…/postgres:16.3").artifact("oci://…/components/postgres"); }
     public Root root() { return new Root().scale(Scale.SINGLE).readiness(Root.Readiness.tcp("pg")).upgrade(">=15"); }
 }
 ```

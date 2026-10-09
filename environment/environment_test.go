@@ -51,7 +51,7 @@ func TestLoad(t *testing.T) {
 	})
 	file := write(t, "prod.yaml", `
 target: k8s
-provider: cr://registry.example/pack-provider-k8s:1.2
+provider: oci://registry.example/pack-provider-k8s:1.2
 vault:
   addr: `+srv.URL+`
   paths: [secret/data/pack/common, secret/data/pack/prod]
@@ -63,14 +63,14 @@ replicas: 3
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env.Target != "k8s" || env.Provider != "cr://registry.example/pack-provider-k8s:1.2" {
+	if env.Target != "k8s" || env.Provider != "oci://registry.example/pack-provider-k8s:1.2" {
 		t.Errorf("what pack reads: %+v", env)
 	}
 	if !reflect.DeepEqual(env.Vault.Paths, []string{"secret/data/pack/common", "secret/data/pack/prod"}) {
 		t.Errorf("vault paths: %v", env.Vault.Paths)
 	}
 	want := map[string]string{
-		"target": "k8s", "provider": "cr://registry.example/pack-provider-k8s:1.2",
+		"target": "k8s", "provider": "oci://registry.example/pack-provider-k8s:1.2",
 		"vault_addr": srv.URL, "vault_paths": "secret/data/pack/common,secret/data/pack/prod",
 		"namespace": "prod", "registry_user": "ci", "kubeconfig": "apiVersion: v1", "replicas": "5",
 	}

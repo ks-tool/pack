@@ -20,7 +20,7 @@ def pack_file(c: Component) -> str:
         for member in c.members():
             mm = member.meta
             if not mm.artifact:
-                raise ValueError(f"{m.name}: member {mm.name} has no artifact (cr://host/repo)")
+                raise ValueError(f"{m.name}: member {mm.name} has no artifact (oci://host/repo)")
             lines.append(f"  - from: {mm.artifact}:{mm.version}")
         return "\n".join(lines) + "\n"
     lines = ["type: application/vnd.horchestra.component.v1+json",

@@ -10,7 +10,7 @@ import (
 )
 
 // openPack loads a composition or a lone component from a directory or,
-// when the argument is a registry reference (cr://host/repo:tag, or
+// when the argument is a registry reference (oci://host/repo:tag, or
 // host/repo:tag), straight from the registry — schemas, templates and image
 // configs only, never an image layer. Credentials come from
 // PACK_REGISTRY_USER / PACK_REGISTRY_PASSWORD.

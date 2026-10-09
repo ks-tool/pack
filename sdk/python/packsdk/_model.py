@@ -106,8 +106,8 @@ class Root:
 class Meta:
     name: str
     version: str
-    image: str = ""          # cr://host/repo:tag; "" for a library or a composition
-    artifact: str = ""       # cr://host/repo (no tag): where the artifact is published
+    image: str = ""          # oci://host/repo:tag; "" for a library or a composition
+    artifact: str = ""       # oci://host/repo (no tag): where the artifact is published
     templates: str = ""      # a directory of template files to ship
     platform: str = "linux/amd64"
 

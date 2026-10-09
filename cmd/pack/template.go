@@ -20,7 +20,7 @@ func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
 func runTemplate(args []string) error {
 	fs := flag.NewFlagSet("template", flag.ContinueOnError)
-	packDir := fs.String("pack", "", "composition or component: a directory, or a registry reference (cr://host/repo:tag)")
+	packDir := fs.String("pack", "", "composition or component: a directory, or a registry reference (oci://host/repo:tag)")
 	plainHTTP := fs.Bool("plain-http", false, "the registry speaks plain HTTP")
 	valuesFile := fs.String("values", "", "values document (YAML)")
 	name := fs.String("name", "", "installation name — the prefix of everything it creates")

@@ -43,7 +43,7 @@ func usage() {
 	_, _ = fmt.Fprint(os.Stderr, `usage:
   pack check [--plain-http] <dir|ref>  author checks on a component directory (schema.json, templates/, image.json),
                                        on a composition directory (its components are the sibling dirs), or on a
-                                       pack in a registry (cr://host/repo:tag — schemas and templates are read, no image)
+                                       pack in a registry (oci://host/repo:tag — schemas and templates are read, no image)
   pack template --pack <dir|ref> --values <file> --name <installation> [--target horchestra] [--set k=v ...]
                 [--namespace ns] [-o <dir>] [--plain-http] [--secretProvider generate|env|file:<dir> --secret /key/path/password ...]
                                        render for a target — horchestra: the ApplicationSet and its config Secrets; no cluster needed

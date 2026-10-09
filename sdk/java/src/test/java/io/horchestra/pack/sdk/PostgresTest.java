@@ -31,7 +31,7 @@ class PostgresTest {
     @Test
     void packFile() {
         String pf = PackSdk.packFile(new Postgres());
-        assertTrue(pf.contains("cr://localhost:5001/images/postgres:16.3"));
+        assertTrue(pf.contains("oci://localhost:5001/images/postgres:16.3"));
         assertTrue(pf.contains("io.horchestra.name: postgres"));
     }
 

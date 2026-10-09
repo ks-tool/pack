@@ -25,7 +25,7 @@ import (
 
 // Record is pack's record of an installation, kept by the target verbatim.
 type Record struct {
-	// Pack is where the installed version came from: a directory or cr://.
+	// Pack is where the installed version came from: a directory or oci://.
 	Pack    string        `json:"pack"`
 	Name    string        `json:"name"`
 	Version string        `json:"version,omitempty"`

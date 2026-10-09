@@ -6,9 +6,9 @@ import java.nio.file.Path;
 public final class Meta {
     public final String name;
     public final String version;
-    /** cr://host/repo:tag the component runs; null for a library or a composition. */
+    /** oci://host/repo:tag the component runs; null for a library or a composition. */
     public String image;
-    /** cr://host/repo (no tag) where the artifact is published: what a pack mounts members from. */
+    /** oci://host/repo (no tag) where the artifact is published: what a pack mounts members from. */
     public String artifact;
     /** A directory of template files to ship as templates/. */
     public Path templates;

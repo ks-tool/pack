@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/ks-tool/pack/provider/providerpb"
+	"github.com/ks-tool/pack/registry"
 	"github.com/ks-tool/pack/render"
 	"github.com/ks-tool/pack/target"
 )
@@ -87,12 +88,15 @@ type Plugin struct {
 func Launch(name string) (*Plugin, error) { return Open(name, "") }
 
 // Open starts the provider of a target from spec: a container image as
-// cr://<host>/<repo>:<tag>, a binary by its path, or — empty — the binary
+// oci://<host>/<repo>:<tag>, a binary by its path, or — empty — the binary
 // pack-provider-<name> wherever Find finds it.
 func Open(name, spec string) (*Plugin, error) {
 	switch {
-	case strings.HasPrefix(spec, "cr://"):
-		return StartImage(name, strings.TrimPrefix(spec, "cr://"))
+	case strings.HasPrefix(spec, "oci://"):
+		if registry.IsLayout(spec) {
+			return nil, fmt.Errorf("target %s: %s is a local OCI layout — a container runtime runs an image from a registry", name, spec)
+		}
+		return StartImage(name, strings.TrimPrefix(spec, "oci://"))
 	case len(spec) > 0:
 		return Start(name, spec)
 	}

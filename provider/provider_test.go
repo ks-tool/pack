@@ -191,7 +191,7 @@ func TestProvider_Image(t *testing.T) {
 	}
 	defer exec.Command(rt, "rmi", "-f", image).Run()
 
-	p, err := Open("fake", "cr://"+image)
+	p, err := Open("fake", "oci://"+image)
 	if err != nil {
 		t.Fatal(err)
 	}

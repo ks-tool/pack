@@ -169,7 +169,7 @@ func TestLoadRef_MatchesDirectories(t *testing.T) {
 	host := strings.TrimPrefix(srv.URL, "http://")
 
 	c := &registry.Client{PlainHTTP: true}
-	got, err := LoadRef(context.Background(), c, "cr://"+host+"/packs/adh:2.1.0")
+	got, err := LoadRef(context.Background(), c, "oci://"+host+"/packs/adh:2.1.0")
 	if err != nil {
 		t.Fatal(err)
 	}

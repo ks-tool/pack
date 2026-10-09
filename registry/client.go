@@ -20,8 +20,10 @@ import (
 	"time"
 )
 
-// Scheme is the prefix of a registry reference, as in oci-packer's pack files.
-const Scheme = "cr://"
+// Scheme is the prefix of an image reference, as in oci-packer: oci:// names
+// an image in a registry (oci://<host>[:<port>]/<repo>:<tag>) or in a local
+// OCI layout (oci://<path>:<repo>:<tag>), and the form tells which (IsLayout).
+const Scheme = "oci://"
 
 // Ref is a parsed registry reference: host/repo:tag or host/repo@digest.
 type Ref struct {
@@ -31,10 +33,14 @@ type Ref struct {
 	Digest string
 }
 
-// Parse reads cr://host/repo:tag, cr://host/repo@sha256:…, or the same
+// Parse reads oci://host/repo:tag, oci://host/repo@sha256:…, or the same
 // without the scheme. A reference names a registry when its first segment
-// has a dot, a port or is localhost — a bare directory name does not.
+// has a dot, a port or is localhost — a bare directory name does not; a
+// local OCI layout's is refused: pack reads registries and directories.
 func Parse(s string) (Ref, error) {
+	if IsLayout(s) {
+		return Ref{}, fmt.Errorf("%s is a local OCI layout: pack reads a pack from a registry or a directory", s)
+	}
 	s = strings.TrimPrefix(s, Scheme)
 	host, rest, ok := strings.Cut(s, "/")
 	if !ok || !IsRegistryHost(host) {
@@ -54,9 +60,45 @@ func Parse(s string) (Ref, error) {
 	return r, nil
 }
 
-// IsRegistryHost says whether the first path segment is a registry host.
+// IsRegistryHost says whether the first path segment is a registry host: a
+// dot, localhost, or a port.
 func IsRegistryHost(host string) bool {
-	return host == "localhost" || strings.ContainsAny(host, ".:")
+	if h, port, ok := strings.Cut(host, ":"); ok {
+		return len(h) > 0 && isPort(port)
+	}
+	return host == "localhost" || strings.Contains(host, ".")
+}
+
+// IsLayout says whether an oci:// reference is to a local OCI layout —
+// oci-packer's rule: a path starting with /, . or ~ is a layout's; else the
+// first segment decides — :<port> a registry, : followed by anything else a
+// layout (layout-dir:my/image), a dot or localhost a registry, anything else
+// a layout.
+func IsLayout(s string) bool {
+	rest, ok := strings.CutPrefix(s, Scheme)
+	if !ok {
+		return false
+	}
+	if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, ".") || strings.HasPrefix(rest, "~") {
+		return true
+	}
+	first, _, _ := strings.Cut(rest, "/")
+	if _, port, ok := strings.Cut(first, ":"); ok {
+		return !isPort(port)
+	}
+	return !strings.Contains(first, ".") && first != "localhost"
+}
+
+func isPort(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // IsRef says whether s looks like a registry reference rather than a path.

@@ -226,15 +226,13 @@ func packFileIdentity(dir string) (name, version string) {
 	return "", ""
 }
 
-// imageRef is the image the component runs: the oci:// or cr:// item of its
-// pack file, or the content of image.ref.
+// imageRef is the image the component runs: the oci:// item of its pack
+// file — an image in a registry — or the content of image.ref.
 func imageRef(dir string) string {
 	if pf := readPackFile(dir); pf != nil {
 		for _, it := range pf.Items {
-			for _, scheme := range []string{"cr://", "oci://", "docker://"} {
-				if ref, ok := strings.CutPrefix(it.From, scheme); ok {
-					return ref
-				}
+			if ref, ok := strings.CutPrefix(it.From, registry.Scheme); ok && !registry.IsLayout(it.From) {
+				return ref
 			}
 		}
 	}

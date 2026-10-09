@@ -7,7 +7,7 @@
 // …}} is vault_addr):
 //
 //	target: k8s                                # the system; its provider is pack-provider-k8s …
-//	provider: cr://registry/pack-provider-k8s:1.2   # … or this binary or image
+//	provider: oci://registry.example/pack-provider-k8s:1.2   # … or this binary or image
 //	vault:
 //	  addr: https://vault.example:8200         # VAULT_ADDR when the file has none
 //	  paths: [secret/data/pack/prod]           # KV read over the file, the last path winning
