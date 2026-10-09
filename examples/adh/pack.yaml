@@ -3,7 +3,7 @@ annotations: {io.horchestra.name: adh, io.horchestra.version: "2.1.0"}
 items:
   - from: file://schema.json
     type: application/vnd.horchestra.pack.schema.v1+json
-  - from: oci://localhost:5001/components/zookeeper:3.9.2
-  - from: oci://localhost:5001/components/kafka:3.7.1
-  - from: oci://localhost:5001/components/postgres:16.3
-  - from: oci://localhost:5001/components/jdk:21.0.4
+  - from: oci://components/zookeeper:3.9.2
+  - from: oci://components/kafka:3.7.1
+  - from: oci://components/postgres:16.3
+  - from: oci://components/jdk:21.0.4

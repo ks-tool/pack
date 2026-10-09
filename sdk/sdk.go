@@ -44,8 +44,8 @@ import (
 type Meta struct {
 	Name     string // io.horchestra.name — a DNS label; the key of the artifact among a pack's members
 	Version  string // io.horchestra.version
-	Image    string // oci://host/repo:tag the component runs; "" for a library or a composition
-	Artifact string // oci://host/repo where the artifact is published (no tag): what a pack mounts its members from
+	Image    string // oci://repo:tag the component runs — a repository of the registry the pack is pushed to, no host; "" for a library or a composition
+	Artifact string // oci://repo where the artifact is published (no tag, no host): what a pack mounts its members from
 	// Templates ships every file of the tree as a template member — the
 	// files `format: template` names. Typically `//go:embed templates`.
 	Templates fs.FS
@@ -161,7 +161,7 @@ func PackFile(c Component) (*packer.Pack, error) {
 		for _, member := range comp.Members() {
 			mm := member.Meta()
 			if len(mm.Artifact) == 0 {
-				return nil, fmt.Errorf("%s: member %s has no Artifact (oci://host/repo) to mount it from", m.Name, mm.Name)
+				return nil, fmt.Errorf("%s: member %s has no Artifact (oci://repo) to mount it from", m.Name, mm.Name)
 			}
 			p.Items = append(p.Items, packer.Descriptor{From: mm.Artifact + ":" + mm.Version})
 		}

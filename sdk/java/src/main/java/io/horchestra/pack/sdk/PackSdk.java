@@ -28,7 +28,7 @@ public final class PackSdk {
             for (Component member : comp.members()) {
                 Meta mm = member.meta();
                 if (mm.artifact == null || mm.artifact.isEmpty()) {
-                    throw new IllegalArgumentException(m.name + ": member " + mm.name + " has no artifact (oci://host/repo)");
+                    throw new IllegalArgumentException(m.name + ": member " + mm.name + " has no artifact (oci://repo)");
                 }
                 b.append("  - from: ").append(mm.artifact).append(':').append(mm.version).append('\n');
             }

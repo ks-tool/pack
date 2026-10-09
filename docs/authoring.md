@@ -458,8 +458,11 @@ kafka/
 `docker image inspect <ref> | jq '.[0]'` (the `Config` key is what matters)
 or from the image's config blob.
 
-`pack.yaml` doubles as the source of `spec.image`: its `oci://…` item is the
-reference the output carries (`image.ref` beside it is the fallback).
+`pack.yaml` doubles as the source of `spec.image` when rendering from a
+directory: its `oci://<repo>:<tag>` item — no host, the image is in the
+pack's registry — is the reference the output carries (`image.ref` beside it
+is the fallback). Deployed from the bundle's reference, the image is the
+member the bundle carries, `<host>/<repo>@<digest>`.
 [artifacts.md](artifacts.md) describes the file.
 
 ## 15. `pack check`, item by item

@@ -18,7 +18,7 @@ spec:
       env:
       - name: JVMFLAGS
         value: -Xmx768m -Xms768m -XX:+UseG1GC
-      image: localhost:5001/images/zookeeper:3.9.2
+      image: images/zookeeper:3.9.2
       placement:
         affinity:
           workloadAntiAffinity:
@@ -52,7 +52,7 @@ spec:
         mountPath: /opt/java
         volume:
           image:
-            reference: localhost:5001/images/jdk:21.0.4
+            reference: images/jdk:21.0.4
       - merge: true
         mountPath: /conf
         volume:
@@ -82,7 +82,7 @@ spec:
       env:
       - name: KAFKA_HEAP_OPTS
         value: -Xmx24576m -Xms24576m -XX:+UseG1GC
-      image: localhost:5001/images/kafka:3.7.1
+      image: images/kafka:3.7.1
       placement:
         affinity:
           workloadAntiAffinity:
@@ -115,7 +115,7 @@ spec:
         mountPath: /opt/java
         volume:
           image:
-            reference: localhost:5001/images/jdk:21.0.4
+            reference: images/jdk:21.0.4
       - merge: true
         mountPath: /opt/kafka/config
         volume:
@@ -150,7 +150,7 @@ spec:
         secretRef:
           key: password
           name: prod-ranger-db
-      image: localhost:5001/images/postgres:16.3
+      image: images/postgres:16.3
       ports:
       - name: pg
         port: 5432
@@ -188,7 +188,7 @@ spec:
         secretRef:
           key: password
           name: prod-hive-db
-      image: localhost:5001/images/postgres:16.3
+      image: images/postgres:16.3
       ports:
       - name: pg
         port: 5432

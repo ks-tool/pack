@@ -35,7 +35,7 @@ func TestSDKPostgresMatchesExample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pf.Type != sdk.ArtifactComponent || len(pf.Items) != 3 || pf.Items[0].From != "oci://localhost:5001/images/postgres:16.3" ||
+	if pf.Type != sdk.ArtifactComponent || len(pf.Items) != 3 || pf.Items[0].From != "oci://images/postgres:16.3" ||
 		pf.Items[0].Platform != "linux/amd64" || pf.Items[2].From != "dir://templates/" || pf.Items[2].Type != sdk.ArtifactTemplate {
 		t.Errorf("pack file: %+v", pf)
 	}

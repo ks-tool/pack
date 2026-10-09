@@ -40,8 +40,8 @@ class Postgres(Component):
     superuser: Superuser = default_factory(Superuser)
     conf: Conf = file(Conf(), path="/etc/postgresql/postgresql.conf", format="properties")
 
-    meta = Meta(name="postgres", version="16.3", image="oci://localhost:5001/images/postgres:16.3",
-                artifact="oci://localhost:5001/components/postgres")
+    meta = Meta(name="postgres", version="16.3", image="oci://images/postgres:16.3",
+                artifact="oci://components/postgres")
 
     def root(self) -> Root:
         return Root(

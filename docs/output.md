@@ -29,7 +29,7 @@ spec:
     metadata: {labels: {horchestra.io/component: kafka}}
     scale: {replicas: 3}                       # x-pack.scale: replicas → platform.replicas; single → no scale
     spec:
-      image: localhost:5001/images/kafka:3.7.1 # pack.yaml's oci:// item
+      image: images/kafka:3.7.1                # from a directory: pack.yaml's oci:// item; from the bundle: <host>/<repo>@<digest>
       command: […]                             # image.json Entrypoint (or x-pack.command)
       args: [--override, min.insync.replicas=2]   # image.json Cmd ⊕ arg= leaves in author order
       env:
@@ -50,7 +50,7 @@ spec:
         volume: {pv: {size: 4Ti}}
       - mountPath: /opt/java                   # the jdk library: x-pack-mount
         merge: true
-        volume: {image: {reference: localhost:5001/images/jdk:21.0.4}}
+        volume: {image: {reference: images/jdk:21.0.4}}
       - mountPath: /opt/kafka/config           # every x-pack-file in that directory
         merge: true
         volume:

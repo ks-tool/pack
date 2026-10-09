@@ -57,8 +57,8 @@ func Defaults() Postgres {
 func (Postgres) Meta() sdk.Meta {
 	return sdk.Meta{
 		Name: "postgres", Version: "16.3",
-		Image:     "oci://localhost:5001/images/postgres:16.3",
-		Artifact:  "oci://localhost:5001/components/postgres",
+		Image:     "oci://images/postgres:16.3",
+		Artifact:  "oci://components/postgres",
 		Templates: templates, TemplatesDir: "templates",
 	}
 }

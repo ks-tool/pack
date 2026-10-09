@@ -1,7 +1,7 @@
 type: application/vnd.horchestra.component.v1+json
 annotations: {io.horchestra.name: zookeeper, io.horchestra.version: "3.9.2"}
 items:
-  - from: oci://localhost:5001/images/zookeeper:3.9.2
+  - from: oci://images/zookeeper:3.9.2
     platform: linux/arm64
   - from: file://schema.json
     type: application/vnd.horchestra.component.schema.v1+json

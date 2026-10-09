@@ -1,7 +1,7 @@
 type: application/vnd.horchestra.component.v1+json
 annotations: {io.horchestra.name: jdk, io.horchestra.version: "21.0.4"}
 items:
-  - from: oci://localhost:5001/images/jdk:21.0.4
+  - from: oci://images/jdk:21.0.4
     platform: linux/arm64
   - from: file://schema.json
     type: application/vnd.horchestra.component.schema.v1+json

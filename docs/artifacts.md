@@ -15,7 +15,7 @@ is oci-packer's own.
 type: application/vnd.horchestra.component.v1+json
 annotations: {io.horchestra.name: kafka, io.horchestra.version: "3.7.1"}
 items:
-  - from: oci://registry.example/images/kafka:3.7.1     # the image: mounted from the same registry, not copied
+  - from: oci://images/kafka:3.7.1     # the image: a repository of the registry the pack is pushed to — no host
     platform: linux/arm64
   - from: file://schema.json
     type: application/vnd.horchestra.component.schema.v1+json
@@ -34,20 +34,26 @@ become one manifest each, tagged by their `type`. The image must already be
 in the same registry — the item is a cross-repository mount, and its
 manifest and blobs are copied into the artifact's repository.
 
-**No external registries.** Every image a pack uses is loaded into the
-registry the pack is published to beforehand, and its `oci://` item names it
-there: the item's host is the artifact's own. oci-packer refuses an item on
-another registry's host, or in a local OCI layout, before it builds anything
-(the mount is cross-repository within one registry), so an image from
-outside is copied in first:
+**No external registries, no host in an item.** Every image a pack uses is
+loaded into the registry the pack is published to beforehand, and its item
+is `oci://<repo>:<tag>` — a repository of that registry, named without a
+host: the registry is the pack's own, whichever it is, so a bundle copied to
+another registry stays valid. oci-packer refuses an item naming a registry,
+or a local OCI layout, before it builds anything (the mount is
+cross-repository within one registry), so an image from outside is copied
+in first:
 
 ```sh
 oci-packer copy oci://docker.io/library/postgres:18-alpine oci://registry.example/images/postgres:18-alpine
 ```
 
 The tool reads the same file for two things: the component's **name and
-version** (the annotations) and the **image reference** for `spec.image`
-(the `oci://` item, scheme stripped). Without a `pack.yaml`, `image.ref`
+version** (the annotations) and, rendering from a directory, the **image
+reference** for `spec.image` — the `oci://` item, scheme stripped, a
+repository without a host: a directory is the author's to check and test. A
+pack is deployed only from its bundle's reference
+(`--pack oci://<host>/<repo>:<tag>`), and then the image is the member the
+bundle carries: `<bundle's host>/<artifact's repository>@<digest>`. Without a `pack.yaml`, `image.ref`
 beside the schema supplies the reference and the directory name supplies
 the name.
 
@@ -64,10 +70,10 @@ annotations: {io.horchestra.name: adh, io.horchestra.version: "2.1.0"}
 items:
   - from: file://schema.json
     type: application/vnd.horchestra.pack.schema.v1+json
-  - from: oci://registry.example/components/zookeeper:3.9.2   # every component and library, once per name
-  - from: oci://registry.example/components/kafka:3.7.1
-  - from: oci://registry.example/components/postgres:16.3
-  - from: oci://registry.example/components/jdk:21.0.4
+  - from: oci://components/zookeeper:3.9.2   # every component and library, once per name
+  - from: oci://components/kafka:3.7.1
+  - from: oci://components/postgres:16.3
+  - from: oci://components/jdk:21.0.4
 ```
 
 The pack pins the **digest** of every member; the composition's schema

@@ -56,7 +56,7 @@ def test_pack_ref():
 
 def test_pack_file():
     pf = pack_file(Postgres())
-    assert "oci://localhost:5001/images/postgres:16.3" in pf
+    assert "oci://images/postgres:16.3" in pf
     assert "io.horchestra.name: postgres" in pf
 
 

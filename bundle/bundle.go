@@ -226,12 +226,15 @@ func packFileIdentity(dir string) (name, version string) {
 	return "", ""
 }
 
-// imageRef is the image the component runs: the oci:// item of its pack
-// file — an image in a registry — or the content of image.ref.
+// imageRef is the image the component runs, as a directory says it: the
+// oci:// item of its pack file — a repository of the registry the pack is
+// pushed to, no host — or the content of image.ref. A directory is the
+// author's: a deployment renders from the bundle's reference, where the
+// image is <bundle's host>/<artifact's repository>@<digest> (source.go).
 func imageRef(dir string) string {
 	if pf := readPackFile(dir); pf != nil {
 		for _, it := range pf.Items {
-			if ref, ok := strings.CutPrefix(it.From, registry.Scheme); ok && !registry.IsLayout(it.From) {
+			if ref, ok := strings.CutPrefix(it.From, registry.Scheme); ok {
 				return ref
 			}
 		}
