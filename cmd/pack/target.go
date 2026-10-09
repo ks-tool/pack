@@ -13,6 +13,7 @@ import (
 // and its settings. --namespace is the shorthand for --set namespace=….
 type targetFlags struct {
 	name      *string
+	provider  *string
 	namespace *string
 	settings  multiFlag
 }
@@ -20,6 +21,7 @@ type targetFlags struct {
 func addTargetFlags(fs *flag.FlagSet) *targetFlags {
 	tf := &targetFlags{
 		name:      fs.String("target", "horchestra", "the system to render for: its provider pack-provider-<target> is run ("+provider.EnvPath+", beside pack, PATH)"),
+		provider:  fs.String("provider", "", "the target's provider: a binary's path, or a container image as cr://<host>/<repo>:<tag> run with podman or docker ("+provider.EnvRuntime+"); default — pack-provider-<target>"),
 		namespace: fs.String("namespace", "", "shorthand for --set namespace=<ns>"),
 	}
 	fs.Var(&tf.settings, "set", "a setting of the target, key=value; repeatable")
@@ -43,7 +45,7 @@ func (tf *targetFlags) configure(installation string) (inst target.Installation,
 		}
 		settings["namespace"] = *tf.namespace
 	}
-	p, err := provider.Launch(*tf.name)
+	p, err := provider.Open(*tf.name, *tf.provider)
 	if err != nil {
 		return nil, nil, err
 	}

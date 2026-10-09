@@ -3,10 +3,13 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +18,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/ks-tool/pack/provider/providerpb"
@@ -30,7 +36,13 @@ const (
 	// Prefix names a provider binary: pack-provider-<target>.
 	Prefix = "pack-provider-"
 
-	startTimeout = 10 * time.Second
+	// EnvRuntime names the container runtime that runs a provider image;
+	// unset — podman, else docker, whichever is on PATH.
+	EnvRuntime = "PACK_CONTAINER_RUNTIME"
+
+	binaryStart = 10 * time.Second
+	imageStart  = 3 * time.Minute // the runtime may pull the image first
+	imagePort   = "7353"          // where a provider listens inside its container
 )
 
 // Find locates pack-provider-<name>: in PACK_PROVIDER_PATH, beside the
@@ -60,17 +72,30 @@ func Find(name string) (string, error) {
 // Close it when done: it stops the process.
 type Plugin struct {
 	name   string
+	what   string // the binary or the image, for messages
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	exited chan error // the process's one Wait
 	dir    string
+	kill   func() // stops what Close could not
 	conn   *grpc.ClientConn
 	client providerpb.ProviderClient
 	caps   []string
 }
 
 // Launch finds and starts the provider of a target and shakes hands with it.
-func Launch(name string) (*Plugin, error) {
+func Launch(name string) (*Plugin, error) { return Open(name, "") }
+
+// Open starts the provider of a target from spec: a container image as
+// cr://<host>/<repo>:<tag>, a binary by its path, or — empty — the binary
+// pack-provider-<name> wherever Find finds it.
+func Open(name, spec string) (*Plugin, error) {
+	switch {
+	case strings.HasPrefix(spec, "cr://"):
+		return StartImage(name, strings.TrimPrefix(spec, "cr://"))
+	case len(spec) > 0:
+		return Start(name, spec)
+	}
 	bin, err := Find(name)
 	if err != nil {
 		return nil, err
@@ -78,61 +103,166 @@ func Launch(name string) (*Plugin, error) {
 	return Start(name, bin)
 }
 
-// Start runs the provider binary at bin for the target name.
+// Start runs the provider binary at bin for the target name; it listens on
+// a unix socket in a private directory.
 func Start(name, bin string) (*Plugin, error) {
 	dir, err := os.MkdirTemp("", "pack-provider-")
 	if err != nil {
 		return nil, err
 	}
-	p := &Plugin{name: name, dir: dir}
 	sock := filepath.Join(dir, "provider.sock")
-	p.cmd = exec.Command(bin)
-	p.cmd.Env = append(os.Environ(), EnvSocket+"="+sock)
-	p.cmd.Stdout = os.Stderr // a provider has nothing to say on pack's stdout
-	p.cmd.Stderr = os.Stderr
-	if p.stdin, err = p.cmd.StdinPipe(); err != nil {
+	token, err := newToken()
+	if err != nil {
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
+	cmd := exec.Command(bin)
+	cmd.Env = append(os.Environ(), EnvAddress+"=unix://"+sock, EnvToken+"="+token)
+	p := &Plugin{name: name, what: bin, cmd: cmd, dir: dir}
+	return p.start("unix://"+sock, token, binaryStart)
+}
+
+// startTCP runs a provider binary listening on TCP, as an image's does — for tests.
+func startTCP(name, bin string) (*Plugin, error) {
+	port, err := freePort()
+	if err != nil {
+		return nil, err
+	}
+	token, err := newToken()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(bin)
+	cmd.Env = append(os.Environ(), EnvAddress+"=tcp://127.0.0.1:"+port, EnvToken+"="+token)
+	p := &Plugin{name: name, what: bin, cmd: cmd}
+	return p.start("127.0.0.1:"+port, token, binaryStart)
+}
+
+// StartImage runs the provider image for the target name in a container:
+// podman or docker (PACK_CONTAINER_RUNTIME), the provider listening on TCP
+// inside, published on a free port of 127.0.0.1 only. The runtime pulls the
+// image when it does not have it.
+func StartImage(name, image string) (*Plugin, error) {
+	runtime, err := containerRuntime()
+	if err != nil {
+		return nil, err
+	}
+	port, err := freePort()
+	if err != nil {
+		return nil, err
+	}
+	token, err := newToken()
+	if err != nil {
+		return nil, err
+	}
+	cname := "pack-provider-" + name + "-" + token[:12]
+	cmd := exec.Command(runtime, "run", "-i", "--rm", "--name", cname,
+		"-p", "127.0.0.1:"+port+":"+imagePort,
+		"-e", EnvAddress+"=tcp://0.0.0.0:"+imagePort, "-e", EnvToken+"="+token,
+		image)
+	p := &Plugin{name: name, what: image, cmd: cmd,
+		kill: func() { _ = exec.Command(runtime, "kill", cname).Run() }}
+	return p.start("127.0.0.1:"+port, token, imageStart)
+}
+
+// start runs the process and shakes hands with it at addr, retrying until it
+// answers, it exits, or the time is up.
+func (p *Plugin) start(addr, token string, within time.Duration) (*Plugin, error) {
+	p.cmd.Stdout = os.Stderr // a provider has nothing to say on pack's stdout
+	p.cmd.Stderr = os.Stderr
+	var err error
+	if p.stdin, err = p.cmd.StdinPipe(); err != nil {
+		p.cleanup()
+		return nil, err
+	}
 	if err := p.cmd.Start(); err != nil {
-		_ = os.RemoveAll(dir)
-		return nil, fmt.Errorf("target %s: %w", name, err)
+		p.cleanup()
+		return nil, fmt.Errorf("target %s: %w", p.name, err)
 	}
 	p.exited = make(chan error, 1)
 	go func() { p.exited <- p.cmd.Wait() }()
-	deadline := time.Now().Add(startTimeout)
-	for {
-		if _, err := os.Stat(sock); err == nil {
-			break
-		}
-		select {
-		case err := <-p.exited:
-			p.exited <- err
-			_ = os.RemoveAll(dir)
-			return nil, fmt.Errorf("target %s: %s exited before listening: %v", name, bin, err)
-		case <-time.After(20 * time.Millisecond):
-		}
-		if time.Now().After(deadline) {
-			p.Close()
-			return nil, fmt.Errorf("target %s: %s did not listen within %s", name, bin, startTimeout)
-		}
+	auth := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		return invoker(metadata.AppendToOutgoingContext(ctx, TokenKey, token), method, req, reply, cc, opts...)
 	}
-	if p.conn, err = grpc.NewClient("unix://"+sock, grpc.WithTransportCredentials(insecure.NewCredentials())); err != nil {
+	authStream := func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		return streamer(metadata.AppendToOutgoingContext(ctx, TokenKey, token), desc, cc, method, opts...)
+	}
+	// the provider is starting: try often, not after gRPC's usual second
+	connect := grpc.ConnectParams{Backoff: backoff.Config{BaseDelay: 20 * time.Millisecond, Multiplier: 1.5, MaxDelay: time.Second}, MinConnectTimeout: time.Second}
+	if p.conn, err = grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithConnectParams(connect),
+		grpc.WithUnaryInterceptor(auth), grpc.WithStreamInterceptor(authStream)); err != nil {
 		p.Close()
 		return nil, err
 	}
 	p.client = providerpb.NewProviderClient(p.conn)
-	hs, err := p.client.Handshake(context.Background(), &providerpb.HandshakeRequest{Protocol: Protocol})
-	if err != nil {
-		p.Close()
-		return nil, fmt.Errorf("target %s: handshake: %w", name, unwrap(err))
+	deadline := time.Now().Add(within)
+	var hs *providerpb.HandshakeResponse
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		hs, err = p.client.Handshake(ctx, &providerpb.HandshakeRequest{Protocol: Protocol}, grpc.WaitForReady(true))
+		cancel()
+		if err == nil {
+			break
+		}
+		if s, ok := status.FromError(err); ok && s.Code() != codes.Unavailable && s.Code() != codes.DeadlineExceeded {
+			p.Close()
+			return nil, fmt.Errorf("target %s: handshake: %w", p.name, unwrap(err))
+		}
+		select {
+		case werr := <-p.exited:
+			p.exited <- werr
+			p.Close()
+			return nil, fmt.Errorf("target %s: %s exited before answering: %v", p.name, p.what, werr)
+		default:
+		}
+		if time.Now().After(deadline) {
+			p.Close()
+			return nil, fmt.Errorf("target %s: %s did not answer within %s: %v", p.name, p.what, within, unwrap(err))
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	if hs.Protocol != Protocol || hs.Target != name {
+	if hs.Protocol != Protocol || hs.Target != p.name {
 		p.Close()
-		return nil, fmt.Errorf("target %s: %s is target %q speaking %s, wanted target %q speaking %s", name, bin, hs.Target, hs.Protocol, name, Protocol)
+		return nil, fmt.Errorf("target %s: %s is target %q speaking %s, wanted target %q speaking %s", p.name, p.what, hs.Target, hs.Protocol, p.name, Protocol)
 	}
 	p.caps = hs.Capabilities
 	return p, nil
+}
+
+func (p *Plugin) cleanup() {
+	if len(p.dir) > 0 {
+		_ = os.RemoveAll(p.dir)
+	}
+}
+
+func containerRuntime() (string, error) {
+	if r := os.Getenv(EnvRuntime); len(r) > 0 {
+		return exec.LookPath(r)
+	}
+	for _, r := range []string{"podman", "docker"} {
+		if p, err := exec.LookPath(r); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("a provider image needs a container runtime: no podman or docker on PATH (%s names another)", EnvRuntime)
+}
+
+func freePort() (string, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	defer l.Close()
+	_, port, err := net.SplitHostPort(l.Addr().String())
+	return port, err
+}
+
+func newToken() (string, error) {
+	var b [24]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // Close ends the provider: its stdin closes, it stops serving and exits.
@@ -147,11 +277,14 @@ func (p *Plugin) Close() {
 		select {
 		case <-p.exited:
 		case <-time.After(5 * time.Second):
+			if p.kill != nil {
+				p.kill()
+			}
 			_ = p.cmd.Process.Kill()
 			<-p.exited
 		}
 	}
-	_ = os.RemoveAll(p.dir)
+	p.cleanup()
 }
 
 func (p *Plugin) Name() string { return p.name }

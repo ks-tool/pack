@@ -1,21 +1,33 @@
-// Package provider runs a target in its own process. A provider binary
-// (pack-provider-<target>) calls Serve with its target.Target; pack calls
-// Launch, which starts the binary and gives back a target.Target that asks
-// it over gRPC (proto/provider.proto). Neither side links the other: pack
-// knows no target, a provider knows the render's types and nothing of the CLI.
+// Package provider runs a target in its own process — a binary, or a
+// container image when the provider is written in a language whose runtime
+// the machine running pack does not have. A provider written in Go calls
+// Serve with its target.Target; pack calls Launch, which starts the binary
+// or the image and gives back a target.Target that asks it over gRPC
+// (proto/provider.proto). Neither side links the other: pack knows no
+// target, a provider knows the render's types and nothing of the CLI.
+//
+// What a provider in any language is told, in its environment:
+//
+//	PACK_PROVIDER_ADDRESS  where to listen: unix:///<path> (a binary) or tcp://<host>:<port> (an image)
+//	PACK_PROVIDER_TOKEN    a token every call carries as the metadata pack-provider-token; refuse a call without it
+//
+// and EOF on stdin means pack is done with it: exit.
 package provider
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/ks-tool/pack/provider/providerpb"
@@ -25,22 +37,50 @@ import (
 const (
 	// Protocol is the version of the provider protocol this package speaks.
 	Protocol = "pack.provider.v1"
-	// EnvSocket is where pack tells the provider to listen.
-	EnvSocket = "PACK_PROVIDER_SOCKET"
+	// EnvAddress is where pack tells the provider to listen.
+	EnvAddress = "PACK_PROVIDER_ADDRESS"
+	// EnvToken is the token every call of pack carries.
+	EnvToken = "PACK_PROVIDER_TOKEN"
+	// TokenKey is the metadata key the token travels under.
+	TokenKey = "pack-provider-token"
 )
 
-// Serve is the whole main of a provider binary: it listens on the socket
-// pack gave it, serves t, and returns when pack closes its stdin.
+// Serve is the whole main of a provider binary: it listens where pack told
+// it, serves t to whoever has the token, and returns when pack closes its
+// stdin.
 func Serve(t target.Target) error {
-	sock := os.Getenv(EnvSocket)
-	if len(sock) == 0 {
-		return fmt.Errorf("%s is not set: this is a pack provider (target %s), pack starts it", EnvSocket, t.Name())
+	addr := os.Getenv(EnvAddress)
+	if len(addr) == 0 {
+		return fmt.Errorf("%s is not set: this is a pack provider (target %s), pack starts it", EnvAddress, t.Name())
 	}
-	l, err := net.Listen("unix", sock)
+	token := os.Getenv(EnvToken)
+	if len(token) == 0 {
+		return fmt.Errorf("%s is not set: pack gives every provider a token", EnvToken)
+	}
+	var l net.Listener
+	var err error
+	switch {
+	case strings.HasPrefix(addr, "unix://"):
+		l, err = net.Listen("unix", strings.TrimPrefix(addr, "unix://"))
+	case strings.HasPrefix(addr, "tcp://"):
+		l, err = net.Listen("tcp", strings.TrimPrefix(addr, "tcp://"))
+	default:
+		return fmt.Errorf("%s %q: unix:///<path> or tcp://<host>:<port>", EnvAddress, addr)
+	}
 	if err != nil {
 		return err
 	}
-	s := grpc.NewServer()
+	s := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
+		if err := authorized(ctx, token); err != nil {
+			return nil, err
+		}
+		return h(ctx, req)
+	}), grpc.StreamInterceptor(func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, h grpc.StreamHandler) error {
+		if err := authorized(ss.Context(), token); err != nil {
+			return err
+		}
+		return h(srv, ss)
+	}))
 	providerpb.RegisterProviderServer(s, &server{t: t})
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(l) }()
@@ -53,6 +93,18 @@ func Serve(t target.Target) error {
 		return err
 	}
 	return nil
+}
+
+// authorized: the call carries the token pack gave this provider. A provider
+// on TCP is reachable by anyone on the machine; the token is what makes it pack's.
+func authorized(ctx context.Context, token string) error {
+	md, _ := metadata.FromIncomingContext(ctx)
+	for _, v := range md.Get(TokenKey) {
+		if subtle.ConstantTimeCompare([]byte(v), []byte(token)) == 1 {
+			return nil
+		}
+	}
+	return status.Error(codes.Unauthenticated, "no or wrong "+TokenKey)
 }
 
 // server answers for one target, bound to one installation by Configure.

@@ -11,10 +11,19 @@
 // into the system's own data and actions — a StatefulSet and a Secret applied
 // to a cluster, config files copied to a host and an image started there.
 //
-// pack starts the provider binary (pack-provider-<target>), gives it a unix
-// socket in a private directory (PACK_PROVIDER_SOCKET) and its stdin — EOF on
-// stdin is the provider's signal to exit — and speaks this service over the
-// socket. The method set is closed and carries data only.
+// pack starts the provider — a binary (pack-provider-<target>), or a
+// container image run with podman or docker for a provider whose language's
+// runtime the machine lacks — and tells it in its environment where to
+// listen and the token to demand:
+//
+//   PACK_PROVIDER_ADDRESS  unix:///<path> (a binary: a socket in a private
+//                          directory) or tcp://<host>:<port> (an image: the
+//                          port is published on 127.0.0.1 only)
+//   PACK_PROVIDER_TOKEN    every call carries it as the metadata
+//                          pack-provider-token; refuse a call without it
+//
+// EOF on the provider's stdin is its signal to exit. The method set is
+// closed and carries data only.
 //
 // Free-form documents — a key's platform subtree, the limits formulas read,
 // the computed values of the report — travel as JSON, not as
