@@ -7,13 +7,10 @@ One YAML file, one tree, shaped by the composition's effective schema:
 ```yaml
 values:
   common: {realm: CORP.EXAMPLE}
-  zookeeper:
-    platform: {replicas: 3}
+  zookeeper: {}
   kafka:
     platform:
-      replicas: 3
       resources: {requests: {cpu: "8", memory: "32Gi"}, limits: {memory: "32Gi"}}
-      placement: {queue: data-prod}
     claims: {data: {size: 4Ti}}
     conf: {min.insync.replicas: 2}
     jaas: {password: {secretRef: {name: prod-kafka-sasl, key: password}}}
@@ -22,11 +19,16 @@ values:
 rollout: {maxUnavailable: 1}
 ```
 
-- Under each key, `platform` is the **platform half**, in the words of the
-  target the pack is rendered for — for horchestra: replicas, resources,
-  placement, additive `env`, labels (`pack schema platform --target
-  horchestra`). Everything else is the **application half**, shaped by the
-  component.
+- Under each key, `platform` is the **platform half**: the pack's —
+  `resources` (cgroups), additive `env`, `metadata` — and the target's —
+  `replicas`, `placement` and the like — which the environment gives through
+  its provider; the horchestra environment of adh
+  (`examples/adh/envs/horchestra.yaml`) says `platform: {kafka: {replicas: 3,
+  placement: {queue: data-prod}}}`. Values may set the target's half too; the
+  environment's goes over it. Everything else is the **application half**,
+  shaped by the component.
+- A key named as `{}` is selected and writes nothing: its defaults and
+  formulas stay.
 - A library's settings sit under its key inside the consumer (`kafka.jdk.gc`).
 - A credential is only ever a reference, `{secretRef: {name, key}}`; a
   plain string is refused.

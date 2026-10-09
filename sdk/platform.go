@@ -2,14 +2,13 @@ package sdk
 
 import "github.com/ks-tool/pack/sdk/packschema"
 
-// Platform mirrors the platform half of a component's values — what the
-// operator sizes — so that a Go default value is typed. Its schema is not
-// the author's and not the pack's: the key refers to the platform slot
-// (packschema.PlatformRef), which the target a pack is rendered for fills;
-// the value here is the default layered over it. Placement is not here: it
-// is the operator's, in the words of the target.
+// Platform mirrors the pack's half of a component's platform — resources
+// (cgroups: the same on Kubernetes, horchestra or a VM), env, metadata — so
+// that a Go default value is typed. The key refers to the platform slot
+// (packschema.PlatformRef): the pack's schema of these, joined to the
+// target's. How many instances, where they go — replicas, placement — is
+// the target's half: pack schedules nothing.
 type Platform struct {
-	Replicas  int       `json:"replicas,omitempty"`
 	Resources Resources `json:"resources,omitzero"`
 	Env       []EnvVar  `json:"env,omitempty"`
 	Metadata  *Metadata `json:"metadata,omitempty"`

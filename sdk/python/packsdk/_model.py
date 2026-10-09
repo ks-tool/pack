@@ -143,18 +143,17 @@ class Resources:
 
 @dataclass
 class Platform:
-    """The platform half: its schema is the target's (the platform slot). Use
-    as `platform: Platform = Platform.sized("500m", "512Mi")`; it reflects to
-    {"$ref": "urn:pack:platform", "default": …}. Placement is not here — it
-    is the operator's, in the target's words."""
-    replicas: int = 0
+    """The pack's half of the platform — resources (cgroups), the same on
+    every target. Use as `platform: Platform = Platform.sized("500m", "512Mi")`;
+    it reflects to {"$ref": "urn:pack:platform", "default": …}. Replicas and
+    placement are the target's half: pack schedules nothing."""
     resources: Resources = field(default_factory=Resources)
 
     REF = "urn:pack:platform"
 
     @classmethod
-    def sized(cls, cpu: str, memory: str, replicas: int = 0) -> "Platform":
-        return cls(replicas=replicas, resources=Resources(requests={"cpu": cpu, "memory": memory}, limits={"memory": memory}))
+    def sized(cls, cpu: str, memory: str) -> "Platform":
+        return cls(resources=Resources(requests={"cpu": cpu, "memory": memory}, limits={"memory": memory}))
 
     def default_json(self) -> dict[str, Any]:
         return _clean(self)

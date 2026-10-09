@@ -95,27 +95,37 @@ different port is asking for a different image.
 ## 3. The platform half
 
 ```go
-sdk.Workload    // embeds: Scale string `pack:"const"`, Platform sdk.Platform `pack:"ref=urn:pack:platform,default"`
+sdk.Workload    // embeds: Scale string `pack:"scale"` (x-pack.scale), Platform sdk.Platform `pack:"ref=urn:pack:platform,default"`
 ```
 
-`platform` is the one key whose schema neither the author nor the pack
-writes: it refers to the **platform slot** (`urn:pack:platform`), which the
-**target** a pack is rendered for fills — horchestra's says replicas,
-resources, placement, additive env, labels (`pack schema platform --target
-horchestra`); another target has its own words. Without a target (`pack
-check`) the slot takes any object. `sdk.Workload` carries it together with
-the `scale` fact; the `default` tag turns your default into the key's
-default — replicas and resources, never placement, which is the operator's:
+`platform` is two halves of one schema — the **platform slot**
+(`urn:pack:platform`):
+
+- **the pack's half** — `resources` (requests and limits: cgroups, the same
+  whether Kubernetes, horchestra or a VM applies them), additive `env`,
+  `metadata` (labels, annotations). Its schema is the pack's
+  (`sdk/platform/platform_v1.json`); the author gives defaults, the pack
+  reads it.
+- **the target's half** — how many instances and where: `replicas`,
+  `placement`, whatever the target's scheduler has words for. The
+  environment is deployed before pack comes; pack schedules nothing. The
+  provider gives this half's schema (`pack schema platform --target
+  horchestra` prints the two joined) and its values for each key, from its
+  environment.
+
+`sdk.Workload` carries the pack's half together with the `scale` fact; the
+`default` tag turns your default into the key's default — resources, never
+replicas or placement:
 
 ```go
-Workload: sdk.Replicated(3, "1", "2Gi"),      // or sdk.Single("500m", "512Mi").Limits("1Gi")
+Workload: sdk.Replicated("1", "2Gi"),      // or sdk.Single("500m", "512Mi").Limits("1Gi")
 ```
 
-Formulas do not read `platform` — its words are the target's. What a
-formula may know of it, the target tells as **`limits`**: `limits.memory` in
-bytes, `limits.cpu` in millicores, absent where there is no limit
+Formulas do not read `platform` itself. What a formula may know of it is
+**`limits`** — the pack's `resources.limits`, `limits.memory` in bytes,
+`limits.cpu` in millicores, absent where there is no limit
 (`has(limits.memory) ? limits.memory / 1048576 * 3 / 4 : 1024`). Nothing a
-formula computes can change what the target sizes.
+formula computes can change the sizing.
 
 A **library** has no `platform` (and no `ports`, no `x-pack.scale`): it never runs
 on its own.

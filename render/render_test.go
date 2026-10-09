@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/ks-tool/pack/bundle"
-	"github.com/ks-tool/pack/sdk/compute"
 )
 
 // testTarget is horchestra, spelled out here: render cannot import a
@@ -22,42 +21,16 @@ func (n testTarget) Namespace() string    { return n.namespace }
 func (testTarget) PlatformSchema() []byte { return nil }
 func (n testTarget) Resolve(key, scale string, p map[string]any) (*Resolved, error) {
 	svc := n.installation + "-" + key
-	res := &Resolved{Service: svc, Address: svc + "." + n.namespace, Limits: map[string]any{}}
+	res := &Resolved{Service: svc, Address: svc + "." + n.namespace, Platform: map[string]any{}}
 	if scale == "replicas" {
-		count := 1
-		if c, ok := p["replicas"].(float64); ok {
-			count = int(c)
-		}
-		for i := range count {
+		for i := range 3 {
 			name := fmt.Sprintf("%s-%d", svc, i)
 			res.Instances = append(res.Instances, Instance{Name: name, Address: name + "." + svc + "." + n.namespace})
 		}
 	}
-	res2, _ := p["resources"].(map[string]any)
-	lim, _ := res2["limits"].(map[string]any)
-	if m, ok := lim["memory"].(string); ok {
-		q, err := compute.Quantity(m)
-		if err != nil {
-			return nil, err
-		}
-		res.Limits["memory"] = q / 1000
-	}
 	return res, nil
 }
-func (testTarget) ValidatePlatform(key string, p map[string]any, minimum map[string]string) []string {
-	res, _ := p["resources"].(map[string]any)
-	req, _ := res["requests"].(map[string]any)
-	var out []string
-	for name, min := range minimum {
-		have, _ := req[name].(string)
-		hv, _ := compute.Quantity(have)
-		mv, _ := compute.Quantity(min)
-		if hv < mv {
-			out = append(out, fmt.Sprintf("/%s/platform/resources/requests/%s: %s is below the composition's minimum %s", key, name, have, min))
-		}
-	}
-	return out
-}
+func (testTarget) ValidatePlatform(string, map[string]any) []string { return nil }
 
 func ctxOf(installation, namespace string) Context {
 	return Context{Installation: installation, Target: testTarget{installation, namespace}}

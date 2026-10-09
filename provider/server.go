@@ -164,7 +164,7 @@ func (s *server) Resolve(_ context.Context, req *providerpb.ResolveRequest) (*pr
 	for _, in := range res.Instances {
 		out.Instances = append(out.Instances, &providerpb.Instance{Name: in.Name, Address: in.Address})
 	}
-	if out.LimitsJson, err = encode(res.Limits); err != nil {
+	if out.PlatformJson, err = encode(res.Platform); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return out, nil
@@ -179,7 +179,7 @@ func (s *server) ValidatePlatform(_ context.Context, req *providerpb.ValidatePla
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	return &providerpb.ValidatePlatformResponse{Problems: inst.ValidatePlatform(req.Key, platform, req.Minimum)}, nil
+	return &providerpb.ValidatePlatformResponse{Problems: inst.ValidatePlatform(req.Key, platform)}, nil
 }
 
 func (s *server) Convert(_ context.Context, req *providerpb.ConvertRequest) (*providerpb.ConvertResponse, error) {

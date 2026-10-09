@@ -14,8 +14,8 @@ type Target struct{}
 func (Target) Name() string { return "horchestra" }
 
 func (t Target) Configure(installation string, settings target.Settings) (target.Installation, error) {
-	ctx := Context{Installation: installation, Namespace: settings.Get("namespace", "default")}
-	return bound{names{ctx.Installation, ctx.Namespace}, ctx}, nil
+	ctx := Context{Installation: installation, Namespace: settings.Get("namespace", "default"), Settings: settings}
+	return bound{ctx.Target().(names), ctx}, nil
 }
 
 // bound is horchestra bound to one installation, as a target.Installation.

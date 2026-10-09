@@ -72,7 +72,7 @@ Version constraints: a comma- or space-separated conjunction of
 | `peers` | `{<role>: <key>}` — only needed when the role's type is ambiguous |
 | `after` | keys this one must follow beyond what the peers graph implies |
 | `spread` | replicas on different hosts |
-| `minimum` | `{<resource>: <quantity>}` lower bound on the key's requests — checked by the target, in its words (horchestra: `platform.resources.requests`) |
+| `minimum` | `{<resource>: <quantity>}` lower bound on `platform.resources.requests` — cgroups, the pack's to check |
 
 ## `x-pack-file` on a subtree
 
@@ -134,7 +134,7 @@ prints the platform half's schema the same way.
 | `$ref` | resolves to |
 |---|---|
 | `#/$defs/<name>` | a definition in the same document |
-| `urn:pack:platform` | the platform slot: the schema the target gives the platform half (open — any object — without one) |
+| `urn:pack:platform` | the platform slot: the pack's half (resources, env, metadata) joined to the target's (replicas, placement …); without a target, the pack's half and any other property |
 | `horchestra://pack/v1#/$defs/secretRef` | the secret reference object (what a password leaf becomes in the validating view) |
 | `pack://<name>#` | a component or library by name — a sibling directory at render time, a member of the pack in the artifact |
 
@@ -145,7 +145,7 @@ component is self-contained.
 
 | key | owner |
 |---|---|
-| `platform` | the target — the only key under a component whose schema is neither the author's nor the pack's |
+| `platform` | the pack's half and the target's — the only key under a component whose schema is not the author's |
 | `common` | the composition |
 | `pack` | the tool's context (formulas, templates); never in a schema, never in values |
 

@@ -25,8 +25,8 @@
 // EOF on the provider's stdin is its signal to exit. The method set is
 // closed and carries data only.
 //
-// Free-form documents — a key's platform subtree, the limits formulas read,
-// the computed values of the report — travel as JSON, not as
+// Free-form documents — a key's platform subtree, the computed values of
+// the report — travel as JSON, not as
 // google.protobuf.Struct: Struct makes every number a double, and a formula's
 // integer division must stay integer.
 
@@ -68,7 +68,7 @@ type ProviderClient interface {
 	Configure(ctx context.Context, in *ConfigureRequest, opts ...grpc.CallOption) (*ConfigureResponse, error)
 	// Resolve says what a selected key's platform means on the target.
 	Resolve(ctx context.Context, in *ResolveRequest, opts ...grpc.CallOption) (*ResolveResponse, error)
-	// ValidatePlatform checks a key's platform against the composition's minimum.
+	// ValidatePlatform checks a key's platform in the target's own terms.
 	ValidatePlatform(ctx context.Context, in *ValidatePlatformRequest, opts ...grpc.CallOption) (*ValidatePlatformResponse, error)
 	// Convert turns a release into the target's objects, as files — what the
 	// target would apply, for pack template.
@@ -194,7 +194,7 @@ type ProviderServer interface {
 	Configure(context.Context, *ConfigureRequest) (*ConfigureResponse, error)
 	// Resolve says what a selected key's platform means on the target.
 	Resolve(context.Context, *ResolveRequest) (*ResolveResponse, error)
-	// ValidatePlatform checks a key's platform against the composition's minimum.
+	// ValidatePlatform checks a key's platform in the target's own terms.
 	ValidatePlatform(context.Context, *ValidatePlatformRequest) (*ValidatePlatformResponse, error)
 	// Convert turns a release into the target's objects, as files — what the
 	// target would apply, for pack template.

@@ -28,7 +28,11 @@ func runSchema(args []string) error {
 			return err
 		}
 		defer closeTarget()
-		_, err = os.Stdout.Write(inst.PlatformSchema())
+		slot, err := platform.Merge(inst.PlatformSchema()) // the pack's half joined to the target's
+		if err != nil {
+			return err
+		}
+		_, err = os.Stdout.Write(append(slot, '\n'))
 		return err
 	}
 	return errors.New("schema: vocabulary | platform [--target t]")

@@ -42,7 +42,7 @@ type Conf struct {
 func Defaults() ZooKeeper {
 	return ZooKeeper{
 		Ports:    Ports{Client: 2181, Peer: 2888, Election: 3888},
-		Workload: sdk.Replicated(3, "500m", "1Gi"),
+		Workload: sdk.Replicated("500m", "1Gi"),
 		Claims:   Claims{Data: packschema.Claim{MountPath: "/var/lib/zookeeper", Size: "10Gi"}},
 		Conf:     Conf{TickTime: 2000, InitLimit: 10, SyncLimit: 5, DataDir: "/var/lib/zookeeper", ClientPort: 2181},
 	}

@@ -376,18 +376,18 @@ func (r *remote) Resolve(key, scale string, platform map[string]any) (*render.Re
 	for _, in := range resp.Instances {
 		res.Instances = append(res.Instances, render.Instance{Name: in.Name, Address: in.Address})
 	}
-	if res.Limits, err = decodeMap(resp.LimitsJson); err != nil {
+	if res.Platform, err = decodeMap(resp.PlatformJson); err != nil {
 		return nil, err
 	}
 	return res, nil
 }
 
-func (r *remote) ValidatePlatform(key string, platform map[string]any, minimum map[string]string) []string {
+func (r *remote) ValidatePlatform(key string, platform map[string]any) []string {
 	raw, err := encode(platform)
 	if err != nil {
 		return []string{fmt.Sprintf("/%s/platform: %v", key, err)}
 	}
-	resp, err := r.p.client.ValidatePlatform(context.Background(), &providerpb.ValidatePlatformRequest{Key: key, PlatformJson: raw, Minimum: minimum})
+	resp, err := r.p.client.ValidatePlatform(context.Background(), &providerpb.ValidatePlatformRequest{Key: key, PlatformJson: raw})
 	if err != nil {
 		return []string{fmt.Sprintf("/%s/platform: target %s: %v", key, r.p.name, unwrap(err))}
 	}

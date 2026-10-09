@@ -6,7 +6,7 @@
 // the rest.
 //
 //	type PgInit struct {
-//	    sdk.Workload                    // scale (single | replicas) and platform (replicas, resources — the target's schema)
+//	    sdk.Workload                    // scale (single | replicas) and the pack's half of platform (resources, env, metadata)
 //	    DB   DB   `json:"db"`
 //	    Init Init `json:"init" pack:"file=/opt/pack/pg-init.sh,format=template,template=pg-init.sh.tmpl,parseAs=text,mode=0500"`
 //	}
@@ -73,9 +73,9 @@ type Composition interface {
 // ---- embeddable pieces
 
 // Workload is what every running component has: the scale fact (single or
-// replicas — x-pack.scale) and the platform half of its values — replicas, resources, env,
-// metadata — whose schema and meaning the target gives (the platform slot).
-// Embed it; set the default with Single or Replicated.
+// replicas — x-pack.scale) and the pack's half of its platform — resources,
+// env, metadata. How many replicas is the target's. Embed it; set the
+// default with Single or Replicated.
 type Workload struct {
 	// Scale is lifted into x-pack.scale of the component's root: a fact
 	// about the application, not a value anyone writes.
@@ -89,12 +89,10 @@ func Single(cpu, memory string) Workload {
 	return Workload{Scale: "single", Platform: sized(cpu, memory)}
 }
 
-// Replicated is a replicated workload: n replicas by default, the given
-// requests, a memory limit equal to the request.
-func Replicated(n int, cpu, memory string) Workload {
-	p := sized(cpu, memory)
-	p.Replicas = n
-	return Workload{Scale: "replicas", Platform: p}
+// Replicated is a replicated workload — as many replicas as the target
+// runs — with the given requests and a memory limit equal to the request.
+func Replicated(cpu, memory string) Workload {
+	return Workload{Scale: "replicas", Platform: sized(cpu, memory)}
 }
 
 func sized(cpu, memory string) Platform {

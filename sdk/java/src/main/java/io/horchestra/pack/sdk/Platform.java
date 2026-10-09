@@ -4,16 +4,15 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * The platform half of a component's values — replicas, resources — whose
- * schema is the target's (the platform slot). A field of this type reflects
- * to {@code {"$ref": "urn:pack:platform", "default": …}} with the field's
- * value, pruned of zeros, as the default. Placement is not here: it is the
- * operator's, in the target's words.
+ * The pack's half of a component's platform — resources (cgroups), the same
+ * on every target. A field of this type reflects to
+ * {@code {"$ref": "urn:pack:platform", "default": …}} with the field's value,
+ * pruned of zeros, as the default. Replicas and placement are the target's
+ * half: pack schedules nothing.
  */
 public final class Platform {
     public static final String REF = "urn:pack:platform";
 
-    public int replicas;
     public Resources resources = new Resources();
 
     public static final class Resources {
@@ -30,8 +29,4 @@ public final class Platform {
         return p;
     }
 
-    public Platform replicas(int n) {
-        this.replicas = n;
-        return this;
-    }
 }

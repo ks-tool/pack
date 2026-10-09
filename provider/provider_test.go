@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/ks-tool/pack/bundle"
+	"github.com/ks-tool/pack/environment"
 	"github.com/ks-tool/pack/provider/providerpb"
 	"github.com/ks-tool/pack/render"
 	"github.com/ks-tool/pack/target"
@@ -69,7 +70,11 @@ func TestProvider_ADH(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	inst, err := p.Configure("prod", target.Settings{"namespace": "data", "registry_user": "ci"})
+	env, err := environment.Load(context.Background(), filepath.Join("..", "examples", "adh", "envs", "horchestra.yaml"), map[string]string{"registry_user": "ci"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := p.Configure("prod", target.Settings(env.Settings))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +90,7 @@ func TestProvider_ADH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := filepath.Join("..", "examples", "adh", "testdata", "expected")
+	expected := filepath.Join("..", "target", "horchestra", "testdata", "adh", "expected")
 	seen := 0
 	for _, f := range out.Files {
 		want, err := os.ReadFile(filepath.Join(expected, f.Path))

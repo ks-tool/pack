@@ -43,15 +43,20 @@ type Unit struct {
 	// then the annotated leaves in author order.
 	Command []string
 	Args    []string
-	// Env are the variables the component's annotated leaves make; what
-	// the platform adds is the target's.
+	// Env are the variables the component's annotated leaves make, then the
+	// platform's additive ones.
 	Env   []EnvVar
 	Ports []Port
+	// Resources are the cgroup requests and limits, as the platform has them.
+	Resources *Resources
+	// Labels and Annotations are the platform's metadata.
+	Labels      map[string]string
+	Annotations map[string]string
 	// Spread asks for one instance per host — the composition's spread.
 	Spread bool
-	// Platform is the key's platform subtree as the effective document has
-	// it: the target's words (replicas, resources, env, placement …), which
-	// the render passes on and never reads.
+	// Platform is the key's platform as the effective document has it: the
+	// pack's half (read into the fields above) and the target's (replicas,
+	// placement …), which the render passes on and never reads.
 	Platform  map[string]any
 	Readiness *Readiness
 	// Data are the volumes that outlive an instance (claims).
@@ -80,6 +85,12 @@ type SecretRef struct {
 type Port struct {
 	Name string
 	Port int
+}
+
+// Resources are cgroup settings: requests and limits by resource name.
+type Resources struct {
+	Requests map[string]string
+	Limits   map[string]string
 }
 
 // Readiness is one probe, its port resolved to a number.

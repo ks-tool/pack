@@ -48,15 +48,14 @@ func set(doc map[string]any, ptr string, v any) error {
 }
 
 // pointers lists every leaf pointer present in a document — what the user
-// wrote, so that a formula never overrides it.
+// wrote, so that a formula never overrides it. An empty object writes
+// nothing: values overlay the defaults deep, {} clears nothing, and a key
+// named as {} only to select it keeps its formulas.
 func pointers(v any, prefix string, out map[string]bool) {
 	m, ok := v.(map[string]any)
 	if !ok {
 		out[prefix] = true
 		return
-	}
-	if len(m) == 0 {
-		out[prefix] = true
 	}
 	for k, e := range m {
 		pointers(e, prefix+schema.Pointer(k), out)

@@ -23,13 +23,14 @@ type Context struct {
 }
 
 // Target is what the render asks of the system it renders for. A key's
-// platform subtree is the target's: its schema, what it means — names,
-// addresses, instances, limits — and whether it meets the composition's
-// minimum; the render reads none of it itself. A pack is rendered for one
-// target, never for "any": a neighbour's address ends up in a config file.
+// platform is two halves of one schema: the pack's — resources (cgroups, the
+// same on every target), env, metadata — which the render reads itself, and
+// the target's — replicas, placement, whatever its scheduler has words for —
+// which the target fills and the render passes on. A pack is rendered for
+// one target, never for "any": a neighbour's address ends up in a config file.
 type Target interface {
-	// PlatformSchema is the schema of a key's platform subtree in the
-	// target's words; its $id is platform.SlotID.
+	// PlatformSchema is the target's half of the platform schema; nil — it
+	// adds nothing. platform.Merge joins it to the pack's.
 	PlatformSchema() []byte
 	// Namespace is the scope the target installs into; empty where it has none.
 	Namespace() string
@@ -37,9 +38,9 @@ type Target interface {
 	// is the component's x-pack.scale; a key that is not replicas has no
 	// instances of its own and is addressed as one service.
 	Resolve(key, scale string, platform map[string]any) (*Resolved, error)
-	// ValidatePlatform checks a key's platform against what the composition
-	// requires of it (x-pack.minimum), one "pointer: message" per problem.
-	ValidatePlatform(key string, platform map[string]any, minimum map[string]string) []string
+	// ValidatePlatform checks a key's platform in the target's own terms,
+	// one "pointer: message" per problem.
+	ValidatePlatform(key string, platform map[string]any) []string
 }
 
 // Resolved is a key as the target will run it.
@@ -50,9 +51,10 @@ type Resolved struct {
 	Address string
 	// Instances are its replicas in order — scale: replicas only.
 	Instances []Instance
-	// Limits are the facts formulas read as `limits`: memory in bytes, cpu
-	// in millicores, absent where the target has no limit to tell.
-	Limits map[string]any
+	// Platform is the target's half of the key's platform as the target will
+	// run it — what the operator wrote, what the environment says, the
+	// target's defaults: it replaces the target's properties in the document.
+	Platform map[string]any
 }
 
 // Instance is one replica: its name and how a neighbour reaches it.
@@ -100,8 +102,10 @@ type render struct {
 	order  []string
 	report Report
 	// resolved is the target's answer about each selected key, asked once
-	// the platform subtrees are settled (resolve).
+	// the platform subtrees are settled (resolve); limits are what formulas
+	// read of each key's resources.
 	resolved map[string]*Resolved
+	limits   map[string]map[string]any
 }
 
 // Render runs the link: configure → mutate → validate → convert, and stops at
@@ -534,7 +538,7 @@ func (r *render) eval(f *formula, doc map[string]any, instance map[string]any) (
 	common, _ := doc["common"].(map[string]any)
 	vars := map[string]any{
 		"values": orEmpty(sub),
-		"limits": orEmpty(r.resolved[f.key].Limits),
+		"limits": orEmpty(r.limits[f.key]),
 		"common": orEmpty(common),
 		"me":     r.me(f.key),
 		"peers":  r.peerVars(f.key),
@@ -557,18 +561,49 @@ func orEmpty(m any) any {
 // names and addresses, its instances (scale: replicas only — single is one,
 // addressed as the key) and the limits formulas may read.
 func (r *render) resolve() error {
-	r.resolved = map[string]*Resolved{}
+	r.resolved, r.limits = map[string]*Resolved{}, map[string]map[string]any{}
 	for _, key := range r.keys {
 		keyDoc, _ := get(r.doc, "/"+key)
 		km, _ := keyDoc.(map[string]any)
-		platform, _ := km["platform"].(map[string]any)
-		res, err := r.ctx.Target.Resolve(key, r.b.Components[r.b.KeyComponent[key]].Root.Scale, platform)
+		pl, _ := km["platform"].(map[string]any)
+		res, err := r.ctx.Target.Resolve(key, r.b.Components[r.b.KeyComponent[key]].Root.Scale, pl)
 		if err != nil {
 			return fmt.Errorf("%s: %w", key, err)
 		}
 		r.resolved[key] = res
+		// the document as it is, the target's half as the target says — what
+		// neither half knows stays, for the schema to refuse
+		merged := map[string]any{}
+		maps.Copy(merged, pl)
+		maps.Copy(merged, res.Platform)
+		if km != nil && (len(merged) > 0 || pl != nil) {
+			km["platform"] = merged
+		}
+		if r.limits[key], err = limitsOf(merged); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
 	}
 	return nil
+}
+
+// limitsOf is what formulas read as `limits`: platform.resources.limits,
+// memory in bytes, cpu in millicores — cgroups, the pack's own words.
+func limitsOf(pl map[string]any) (map[string]any, error) {
+	res, _ := pl["resources"].(map[string]any)
+	lim, _ := res["limits"].(map[string]any)
+	out := map[string]any{}
+	for name, div := range map[string]int64{"memory": 1000, "cpu": 1} {
+		v, ok := lim[name].(string)
+		if !ok {
+			continue
+		}
+		q, err := compute.Quantity(v)
+		if err != nil {
+			return nil, fmt.Errorf("platform.resources.limits.%s: %w", name, err)
+		}
+		out[name] = q / div
+	}
+	return out, nil
 }
 
 // replicas is 0 for a key that does not scale, n ≥ 1 for scale: replicas.
@@ -667,14 +702,25 @@ func (r *render) validate() error {
 		problems = append(problems, v.String())
 	}
 	for _, key := range r.keys {
-		ann, _ := r.b.Composition.Root.Properties[key].KeyAnnotation()
-		if len(ann.Minimum) == 0 {
-			continue
-		}
 		keyDoc, _ := get(r.doc, "/"+key)
 		km, _ := keyDoc.(map[string]any)
-		platform, _ := km["platform"].(map[string]any)
-		problems = append(problems, r.ctx.Target.ValidatePlatform(key, platform, ann.Minimum)...)
+		pl, _ := km["platform"].(map[string]any)
+		problems = append(problems, r.ctx.Target.ValidatePlatform(key, pl)...)
+		ann, _ := r.b.Composition.Root.Properties[key].KeyAnnotation()
+		res, _ := pl["resources"].(map[string]any)
+		req, _ := res["requests"].(map[string]any)
+		for name, min := range ann.Minimum {
+			have, ok := req[name].(string)
+			if !ok {
+				problems = append(problems, fmt.Sprintf("/%s/platform/resources/requests/%s: the composition requires at least %s", key, name, min))
+				continue
+			}
+			hv, err1 := compute.Quantity(have)
+			mv, err2 := compute.Quantity(min)
+			if err1 == nil && err2 == nil && hv < mv {
+				problems = append(problems, fmt.Sprintf("/%s/platform/resources/requests/%s: %s is below the composition's minimum %s", key, name, have, min))
+			}
+		}
 	}
 	if len(problems) > 0 {
 		sort.Strings(problems)

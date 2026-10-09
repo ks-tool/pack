@@ -23,20 +23,22 @@ type Compiled struct {
 // Compile builds the validator with the platform slot open: any object.
 func (s *Schema) Compile(id string) (*Compiled, error) { return s.CompileWith(id, nil) }
 
-// CompileWith builds the validator, the platform slot filled by a target's
-// schema (its $id is platform.SlotID); nil leaves the slot open. Foreign
-// references are registered as resources under their own URLs, so the
-// document itself is compiled unchanged apart from the password swap.
-func (s *Schema) CompileWith(id string, platformSchema []byte) (*Compiled, error) {
+// CompileWith builds the validator, the platform slot the pack's half
+// joined to a target's (platform.Merge); nil — the pack's half, open to
+// properties it does not know. Foreign references are registered as
+// resources under their own URLs, so the document itself is compiled
+// unchanged apart from the password swap.
+func (s *Schema) CompileWith(id string, targetPlatform []byte) (*Compiled, error) {
+	slot, err := platform.Merge(targetPlatform)
+	if err != nil {
+		return nil, err
+	}
 	c := jsonschema.NewCompiler()
 	c.DefaultDraft(jsonschema.Draft2020)
 	if err := addResource(c, platform.PackID, platform.PackV1); err != nil {
 		return nil, err
 	}
-	if platformSchema == nil {
-		platformSchema = platform.Slot
-	}
-	if err := addResource(c, platform.SlotID, platformSchema); err != nil {
+	if err := addResource(c, platform.SlotID, slot); err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{id: true} // the document itself is added last, under id

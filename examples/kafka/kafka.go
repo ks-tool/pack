@@ -1,4 +1,4 @@
-// Package kafka needs a ZooKeeper neighbour (the role zk) and the jdk library.
+// Package kafka needs a ZooKeeper neighbor (the role zk) and the jdk library.
 package kafka
 
 import (
@@ -52,7 +52,7 @@ type Jaas struct {
 func Defaults() Kafka {
 	return Kafka{
 		Ports:    Ports{Broker: 9092, Internal: 9093},
-		Workload: sdk.Replicated(3, "1", "2Gi"),
+		Workload: sdk.Replicated("1", "2Gi"),
 		Claims:   Claims{Data: packschema.Claim{MountPath: "/var/lib/kafka/data", Size: "10Gi"}},
 		Conf:     Conf{LogDirs: "/var/lib/kafka/data", BrokerIDGen: true, MinInsyncReplicas: 1, NumPartitions: 3},
 		Jaas:     Jaas{Mechanism: "SCRAM-SHA-512", Username: "kafka"},

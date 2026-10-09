@@ -1,6 +1,7 @@
 package horchestra
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,13 +10,24 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/ks-tool/pack/bundle"
+	"github.com/ks-tool/pack/environment"
 	"github.com/ks-tool/pack/render"
 	"github.com/ks-tool/pack/target"
 )
 
-// The adh composition rendered with its fixture values is the golden output
-// of the tool: applicationset.yaml and every secret under
-// examples/adh/testdata/expected. UPDATE_GOLDEN=1 rewrites them.
+// adhEnvironment is the horchestra environment of the adh example: its set.
+func adhEnvironment(t *testing.T) target.Settings {
+	t.Helper()
+	env, err := environment.Load(context.Background(), filepath.Join("..", "..", "examples", "adh", "envs", "horchestra.yaml"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env.Settings
+}
+
+// The adh composition rendered with its fixture values into its horchestra
+// environment is horchestra's golden output: applicationset.yaml and every
+// secret under testdata/adh/expected. UPDATE_GOLDEN=1 rewrites them.
 func TestRenderADH_Golden(t *testing.T) {
 	root := filepath.Join("..", "..", "examples")
 	b, err := bundle.Load(filepath.Join(root, "adh"))
@@ -30,11 +42,11 @@ func TestRenderADH_Golden(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &v); err != nil {
 		t.Fatal(err)
 	}
-	out, err := Render(b, v, Context{Installation: "prod", Namespace: "data"})
+	out, err := Render(b, v, Context{Installation: "prod", Namespace: "data", Settings: adhEnvironment(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := filepath.Join(root, "adh", "testdata", "expected")
+	expected := filepath.Join("testdata", "adh", "expected")
 	files := map[string][]byte{}
 	files["applicationset.yaml"], _ = yaml.Marshal(out.Set)
 	for _, s := range out.Secrets {
@@ -76,7 +88,9 @@ func TestRenderADH_Golden(t *testing.T) {
 // the CLI writes — the same bytes as the golden set.
 func TestTarget(t *testing.T) {
 	// the environment's whole set: horchestra takes namespace, the rest is not its own
-	inst, err := Target{}.Configure("prod", target.Settings{"namespace": "data", "kubeconfig": "x", "target": "horchestra"})
+	settings := adhEnvironment(t)
+	settings["kubeconfig"] = "x"
+	inst, err := Target{}.Configure("prod", settings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +116,7 @@ func TestTarget(t *testing.T) {
 	if out.Files[0].Path != "applicationset.yaml" || !out.Files[0].Stream {
 		t.Fatalf("the set comes first and is streamed: %+v", out.Files[0].Path)
 	}
-	want, _ := os.ReadFile(filepath.Join(root, "adh", "testdata", "expected", "applicationset.yaml"))
+	want, _ := os.ReadFile(filepath.Join("testdata", "adh", "expected", "applicationset.yaml"))
 	if string(out.Files[0].Data) != string(want) {
 		t.Error("applicationset.yaml differs from golden")
 	}

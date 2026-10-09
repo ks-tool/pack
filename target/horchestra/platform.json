@@ -1,30 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:pack:platform",
+  "$id": "urn:pack:platform:horchestra",
   "type": "object",
-  "additionalProperties": false,
   "properties": {
     "replicas": {
       "type": "integer",
-      "minimum": 0
-    },
-    "resources": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "requests": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "limits": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        }
-      }
+      "minimum": 0,
+      "default": 1
     },
     "placement": {
       "type": "object",
@@ -48,46 +30,6 @@
             "none",
             "host"
           ]
-        }
-      }
-    },
-    "env": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1
-          },
-          "value": {
-            "type": "string"
-          },
-          "secretRef": {
-            "$ref": "horchestra://pack/v1#/$defs/secretRef"
-          }
-        }
-      }
-    },
-    "metadata": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "labels": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "annotations": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
         }
       }
     }

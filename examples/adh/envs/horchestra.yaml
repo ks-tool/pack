@@ -1,0 +1,12 @@
+# An environment of adh: horchestra, namespace data. How many instances and
+# where they go are horchestra's half of the platform — the pack says what
+# the applications are and what they need (resources), the environment where
+# and how many: pack schedules nothing.
+target: horchestra
+namespace: data
+platform:
+  zookeeper:
+    replicas: 3
+  kafka:
+    replicas: 3
+    placement: {queue: data-prod}

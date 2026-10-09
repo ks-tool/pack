@@ -169,7 +169,11 @@ func unitTo(u *render.Unit) (*providerpb.Unit, error) {
 		return nil, nil
 	}
 	pu := &providerpb.Unit{Key: u.Key, Component: u.Component, Replicas: int64(u.Replicas), Image: u.Image,
-		RestartPolicy: u.RestartPolicy, Command: u.Command, Args: u.Args, Spread: u.Spread}
+		RestartPolicy: u.RestartPolicy, Command: u.Command, Args: u.Args, Spread: u.Spread,
+		Labels: u.Labels, Annotations: u.Annotations}
+	if u.Resources != nil {
+		pu.Resources = &providerpb.Resources{Requests: u.Resources.Requests, Limits: u.Resources.Limits}
+	}
 	for _, e := range u.Env {
 		pu.Env = append(pu.Env, &providerpb.EnvVar{Name: e.Name, Value: e.Value, Secret: secretTo(e.Secret)})
 	}
@@ -214,7 +218,11 @@ func unitFrom(pu *providerpb.Unit) (*render.Unit, error) {
 		return nil, nil
 	}
 	u := render.Unit{Key: pu.Key, Component: pu.Component, Replicas: int(pu.Replicas), Image: pu.Image,
-		RestartPolicy: pu.RestartPolicy, Command: pu.Command, Args: pu.Args, Spread: pu.Spread}
+		RestartPolicy: pu.RestartPolicy, Command: pu.Command, Args: pu.Args, Spread: pu.Spread,
+		Labels: pu.Labels, Annotations: pu.Annotations}
+	if r := pu.Resources; r != nil {
+		u.Resources = &render.Resources{Requests: r.Requests, Limits: r.Limits}
+	}
 	for _, e := range pu.Env {
 		u.Env = append(u.Env, render.EnvVar{Name: e.Name, Value: e.Value, Secret: secretFrom(e.Secret)})
 	}

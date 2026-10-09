@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/ks-tool/pack/bundle"
 	"github.com/ks-tool/pack/render"
-	"github.com/ks-tool/pack/sdk/compute"
 )
 
 const (
@@ -29,6 +30,9 @@ const (
 type Context struct {
 	Installation string
 	Namespace    string
+	// Settings are the environment's set: horchestra reads platform_<key>_…
+	// of it for its half of each key's platform.
+	Settings map[string]string
 }
 
 //go:embed platform.json
@@ -39,79 +43,100 @@ var platformSchema []byte
 func PlatformSchema() []byte { return platformSchema }
 
 // Target is what the render asks of horchestra, for this installation.
-func (c Context) Target() render.Target { return names{c.Installation, c.Namespace} }
+func (c Context) Target() render.Target {
+	return names{installation: c.Installation, namespace: c.Namespace, settings: c.Settings}
+}
 
 // names is how horchestra names and reaches what it runs: a key is the
 // service <installation>-<key>, replica i of it <service>-<i>, reached at
-// <service>-<i>.<service>.<namespace> — and what its platform means.
-type names struct{ installation, namespace string }
+// <service>-<i>.<service>.<namespace> — and its half of the platform:
+// replicas and placement.
+type names struct {
+	installation, namespace string
+	settings                map[string]string
+}
 
 func (n names) Namespace() string { return n.namespace }
 
+// PlatformSchema is horchestra's half of the platform: replicas, placement.
 func (names) PlatformSchema() []byte { return platformSchema }
 
 // Resolve: the service <installation>-<key> at <service>.<namespace>; for
-// scale: replicas, platform.replicas instances (1 when the operator gave
-// none), <service>-<i> at <service>-<i>.<service>.<namespace>.
+// scale: replicas, platform.replicas instances, <service>-<i> at
+// <service>-<i>.<service>.<namespace>. horchestra's half of the key's
+// platform is what the values say, under what the environment says of the
+// key (platform_<key>_replicas, platform_<key>_placement_…), replicas 1 when
+// neither does.
 func (n names) Resolve(key, scale string, platform map[string]any) (*render.Resolved, error) {
+	own, err := n.platformOf(key, platform)
+	if err != nil {
+		return nil, err
+	}
 	svc := n.installation + "-" + key
-	res := &render.Resolved{Service: svc, Address: svc + "." + n.namespace}
+	res := &render.Resolved{Service: svc, Address: svc + "." + n.namespace, Platform: own}
 	if scale == "replicas" {
-		count := 1
-		if c, ok := toInt(platform["replicas"]); ok {
-			count = c
-		}
+		count, _ := toInt(own["replicas"])
 		for i := range count {
 			name := fmt.Sprintf("%s-%d", svc, i)
 			res.Instances = append(res.Instances, render.Instance{Name: name, Address: name + "." + svc + "." + n.namespace})
 		}
 	}
-	lim, err := limits(platform)
-	if err != nil {
-		return nil, err
-	}
-	res.Limits = lim
 	return res, nil
 }
 
-// limits: platform.resources.limits, memory in bytes, cpu in millicores.
-func limits(platform map[string]any) (map[string]any, error) {
-	res, _ := platform["resources"].(map[string]any)
-	lim, _ := res["limits"].(map[string]any)
-	out := map[string]any{}
-	for name, div := range map[string]int64{"memory": 1000, "cpu": 1} {
-		v, ok := lim[name].(string)
+// platformOf is horchestra's half of a key's platform: the values', the
+// environment's over them, and the default replicas.
+func (n names) platformOf(key string, platform map[string]any) (map[string]any, error) {
+	own := map[string]any{"replicas": int64(1)}
+	if r, ok := platform["replicas"]; ok {
+		own["replicas"] = r
+	}
+	placement := map[string]any{}
+	if p, ok := platform["placement"].(map[string]any); ok {
+		maps.Copy(placement, p)
+	}
+	prefix := "platform_" + strings.ToLower(key) + "_"
+	for k, v := range n.settings {
+		rest, ok := strings.CutPrefix(k, prefix)
 		if !ok {
 			continue
 		}
-		q, err := compute.Quantity(v)
-		if err != nil {
-			return nil, fmt.Errorf("platform.resources.limits.%s: %w", name, err)
+		switch {
+		case rest == "replicas":
+			i, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", k, err)
+			}
+			own["replicas"] = i
+		case rest == "placement_queue":
+			placement["queue"] = v
+		case rest == "placement_spread":
+			placement["spread"] = v
+		case rest == "placement_priority":
+			i, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", k, err)
+			}
+			placement["priority"] = i
+		case strings.HasPrefix(rest, "placement_nodeselector_"):
+			sel, _ := placement["nodeSelector"].(map[string]any)
+			if sel == nil {
+				sel = map[string]any{}
+			}
+			sel[strings.TrimPrefix(rest, "placement_nodeselector_")] = v
+			placement["nodeSelector"] = sel
+		default:
+			return nil, fmt.Errorf("%s: horchestra's platform has replicas and placement (queue, priority, spread, nodeSelector)", k)
 		}
-		out[name] = q / div
 	}
-	return out, nil
+	if len(placement) > 0 {
+		own["placement"] = placement
+	}
+	return own, nil
 }
 
-// ValidatePlatform holds platform.resources.requests to the composition's minimum.
-func (names) ValidatePlatform(key string, platform map[string]any, minimum map[string]string) []string {
-	res, _ := platform["resources"].(map[string]any)
-	req, _ := res["requests"].(map[string]any)
-	var problems []string
-	for name, min := range minimum {
-		have, ok := req[name].(string)
-		if !ok {
-			problems = append(problems, fmt.Sprintf("/%s/platform/resources/requests/%s: the composition requires at least %s", key, name, min))
-			continue
-		}
-		hv, err1 := compute.Quantity(have)
-		mv, err2 := compute.Quantity(min)
-		if err1 == nil && err2 == nil && hv < mv {
-			problems = append(problems, fmt.Sprintf("/%s/platform/resources/requests/%s: %s is below the composition's minimum %s", key, name, have, min))
-		}
-	}
-	return problems
-}
+// ValidatePlatform: the schema says all horchestra has to say.
+func (names) ValidatePlatform(string, map[string]any) []string { return nil }
 
 // Render renders a bundle for horchestra: render.Render with its names, then
 // Convert.
@@ -174,7 +199,6 @@ func application(u render.Unit, ctx Context, report map[string][]string) (*Named
 	}
 	app.Spec.Command, app.Spec.Args = u.Command, u.Args
 
-	// env: the component's, then the platform's additive ones
 	for _, e := range u.Env {
 		ev := EnvVar{Name: e.Name, Value: e.Value}
 		if e.Secret != nil {
@@ -182,31 +206,11 @@ func application(u render.Unit, ctx Context, report map[string][]string) (*Named
 		}
 		app.Spec.Env = append(app.Spec.Env, ev)
 	}
-	if pe, ok := u.Platform["env"].([]any); ok {
-		for _, e := range pe {
-			em, _ := e.(map[string]any)
-			name, _ := em["name"].(string)
-			for _, existing := range u.Env {
-				if existing.Name == name {
-					return nil, nil, fmt.Errorf("platform.env %s: the component declares that variable", name)
-				}
-			}
-			ev := EnvVar{Name: name}
-			if sr, ok := em["secretRef"].(map[string]any); ok {
-				ev.SecretRef = &SecretRef{}
-				ev.SecretRef.Name, _ = sr["name"].(string)
-				ev.SecretRef.Key, _ = sr["key"].(string)
-			} else {
-				ev.Value, _ = em["value"].(string)
-			}
-			app.Spec.Env = append(app.Spec.Env, ev)
-		}
-	}
 	for _, p := range u.Ports {
 		app.Spec.Ports = append(app.Spec.Ports, Port{Name: p.Name, Port: p.Port})
 	}
-	if res, ok := u.Platform["resources"].(map[string]any); ok {
-		app.Spec.Resources = &Resources{Requests: strMap(res["requests"]), Limits: strMap(res["limits"])}
+	if u.Resources != nil {
+		app.Spec.Resources = &Resources{Requests: u.Resources.Requests, Limits: u.Resources.Limits}
 	}
 
 	// placement: horchestra's own words, read from the platform subtree
@@ -251,7 +255,10 @@ func application(u render.Unit, ctx Context, report map[string][]string) (*Named
 	secrets, mounts := configSecrets(u, ctx, report)
 	app.Spec.Volumes = append(app.Spec.Volumes, mounts...)
 	app.Spec.Volumes = append(app.Spec.Volumes, secretFileMounts(u)...)
-	app.Metadata = &ChildMeta{Labels: map[string]string{LabelComponent: u.Key}}
+	labels := map[string]string{}
+	maps.Copy(labels, u.Labels)
+	labels[LabelComponent] = u.Key
+	app.Metadata = &ChildMeta{Labels: labels, Annotations: u.Annotations}
 	return app, secrets, nil
 }
 

@@ -115,9 +115,34 @@ func (r *render) unit(key string) (*Unit, error) {
 		return nil, err
 	}
 
-	// env: the annotated leaves; the platform is the target's, passed as it is
+	// env: the annotated leaves, then the platform's additive ones
+	pl, _ := km["platform"].(map[string]any)
+	u.Platform = pl
+	if pe, ok := pl["env"].([]any); ok {
+		for _, e := range pe {
+			em, _ := e.(map[string]any)
+			name, _ := em["name"].(string)
+			for _, existing := range envs {
+				if existing.Name == name {
+					return nil, fmt.Errorf("platform.env %s: the component declares that variable", name)
+				}
+			}
+			if sr, ok := em["secretRef"].(map[string]any); ok {
+				envs = append(envs, EnvVar{Name: name, Secret: &SecretRef{Name: str(sr["name"]), Key: str(sr["key"])}})
+			} else {
+				envs = append(envs, EnvVar{Name: name, Value: str(em["value"])})
+			}
+		}
+	}
 	u.Env = envs
-	u.Platform, _ = km["platform"].(map[string]any)
+
+	// resources (cgroups), metadata — the pack's half of the platform
+	if res, ok := pl["resources"].(map[string]any); ok {
+		u.Resources = &Resources{Requests: strMap(res["requests"]), Limits: strMap(res["limits"])}
+	}
+	if md, ok := pl["metadata"].(map[string]any); ok {
+		u.Labels, u.Annotations = strMap(md["labels"]), strMap(md["annotations"])
+	}
 
 	// ports
 	if pm, ok := km["ports"].(map[string]any); ok {
@@ -461,5 +486,17 @@ func sortedKeys(m map[string]any) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func strMap(v any) map[string]string {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for k, e := range m {
+		out[k] = str(e)
+	}
 	return out
 }

@@ -14,7 +14,6 @@ import (
 
 	"github.com/ks-tool/pack/provider"
 	"github.com/ks-tool/pack/render"
-	"github.com/ks-tool/pack/sdk/compute"
 	"github.com/ks-tool/pack/target"
 )
 
@@ -38,32 +37,22 @@ func (fake) Configure(installation string, s target.Settings) (target.Installati
 
 type inst struct{ name, dir string }
 
-func (i *inst) Namespace() string      { return "" }
-func (i *inst) PlatformSchema() []byte { return nil }
-func (i *inst) ValidatePlatform(string, map[string]any, map[string]string) []string {
-	return nil
-}
+func (i *inst) Namespace() string                                { return "" }
+func (i *inst) PlatformSchema() []byte                           { return nil }
+func (i *inst) ValidatePlatform(string, map[string]any) []string { return nil }
 
+// Resolve: replicas from the values (int64 over the wire), 1 by default.
 func (i *inst) Resolve(key, scale string, p map[string]any) (*render.Resolved, error) {
 	svc := i.name + "-" + key
-	res := &render.Resolved{Service: svc, Address: svc, Limits: map[string]any{}}
+	n := int64(1)
+	if c, ok := p["replicas"].(int64); ok {
+		n = c
+	}
+	res := &render.Resolved{Service: svc, Address: svc, Platform: map[string]any{"replicas": n}}
 	if scale == "replicas" {
-		n := 1
-		if c, ok := p["replicas"].(int64); ok {
-			n = int(c)
-		}
 		for k := range n {
 			res.Instances = append(res.Instances, render.Instance{Name: fmt.Sprintf("%s-%d", svc, k), Address: fmt.Sprintf("%s-%d", svc, k)})
 		}
-	}
-	res2, _ := p["resources"].(map[string]any)
-	lim, _ := res2["limits"].(map[string]any)
-	if m, ok := lim["memory"].(string); ok {
-		q, err := compute.Quantity(m)
-		if err != nil {
-			return nil, err
-		}
-		res.Limits["memory"] = q / 1000
 	}
 	return res, nil
 }
