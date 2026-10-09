@@ -1,0 +1,10 @@
+# An environment of adh: Kubernetes, namespace data. How many instances and
+# where are the cluster's half of the platform, as in envs/horchestra.yaml.
+target: k8s
+namespace: data
+platform:
+  zookeeper:
+    replicas: 3
+  kafka:
+    replicas: 3
+    nodeSelector: {node-role.kubernetes.io/data: "true"}

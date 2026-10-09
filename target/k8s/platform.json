@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pack:platform:k8s",
+  "type": "object",
+  "properties": {
+    "replicas": {"type": "integer", "minimum": 0, "default": 1},
+    "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"}},
+    "priorityClassName": {"type": "string"},
+    "storageClass": {"type": "string"}
+  }
+}

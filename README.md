@@ -92,6 +92,15 @@ runs it with podman or docker (`$PACK_CONTAINER_RUNTIME`), the provider listenin
 `PACK_PROVIDER_TOKEN` (demand it as the `pack-provider-token` metadata of every call), and exits on EOF on stdin;
 in Go, `provider.Serve` does all of it.
 
+**Kubernetes.** `--target k8s` runs `pack-provider-k8s`: a key becomes a StatefulSet and a headless Service
+`<installation>-<key>` (a Job when it runs to completion), its config files a Secret per directory mounted file by file
+over the image (a per-instance file by `subPathExpr: $(POD_NAME)`), its claims `volumeClaimTemplates`, its libraries
+image volumes (a runtime that has them: CRI-O, containerd ≥ 2.1, the ImageVolume gate). Its half of the platform is
+`replicas`, `nodeSelector`, `priorityClassName`, `storageClass`; it performs the saga's steps with `kubectl` — the
+kubeconfig, context and namespace from the environment — resolves `${secret:…}` from the cluster's Secrets when it
+applies, runs hooks as Jobs and keeps the installation's record in the ConfigMap `pack-<installation>`
+(`examples/adh/envs/k8s.yaml`, golden output in `target/k8s/testdata/adh`).
+
 **Environments.** A pack is described once — its values — and installed into as many environments as there are
 files: `--config envs/prod.yaml` says where (`target`, `provider`) and what the target needs (a namespace, an
 inventory…), and names the Vault KV of that environment (`vault.addr`, `vault.paths`; the token from `$VAULT_TOKEN`
@@ -127,6 +136,7 @@ templates and the image configs itself and never an image layer — see
 pack/
   cmd/pack/            the CLI
   cmd/pack-provider-horchestra/  the horchestra provider: target/horchestra behind the provider protocol
+  cmd/pack-provider-k8s/         the Kubernetes provider: target/k8s — StatefulSets, Services, Secrets; steps through kubectl
   proto/               provider.proto — the protocol between pack and a provider; gen.sh regenerates provider/providerpb
   provider/            Launch (pack's side: a provider binary as a target.Target) and Serve (a provider binary's main)
   environment/         an environment: its file and Vault KV, the set its provider gets (app-config)
