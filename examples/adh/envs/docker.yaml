@@ -1,0 +1,9 @@
+# An environment of adh: one Docker engine, the installation's own network.
+# How many instances, and which ports the host publishes, are the engine's
+# half of the platform, as in envs/horchestra.yaml.
+target: docker
+platform:
+  zookeeper:
+    replicas: 3
+  kafka:
+    replicas: 3

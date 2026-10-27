@@ -1,0 +1,440 @@
+configs:
+  hive-db-0-postgresql.conf:
+    content: |
+      listen_addresses=*
+      max_connections=100
+      port=5432
+      shared_buffers=1024MB
+  kafka-0-0-kafka_jaas.conf:
+    content: |
+      KafkaServer {
+        org.apache.kafka.common.security.scram.ScramLoginModule required
+        username="kafka"
+        password="${PACK_SECRET_PROD_KAFKA_SASL_PASSWORD}";
+      };
+  kafka-0-1-server.properties:
+    content: |
+      broker.id.generation.enable=true
+      listeners=PLAINTEXT://:9092,INTERNAL://:9093
+      log.dirs=/var/lib/kafka/data
+      min.insync.replicas=2
+      num.partitions=3
+      zookeeper.connect=prod-zookeeper-0:2181,prod-zookeeper-1:2181,prod-zookeeper-2:2181/prod
+  kafka-1-0-kafka_jaas.conf:
+    content: |
+      KafkaServer {
+        org.apache.kafka.common.security.scram.ScramLoginModule required
+        username="kafka"
+        password="${PACK_SECRET_PROD_KAFKA_SASL_PASSWORD}";
+      };
+  kafka-1-1-server.properties:
+    content: |
+      broker.id.generation.enable=true
+      listeners=PLAINTEXT://:9092,INTERNAL://:9093
+      log.dirs=/var/lib/kafka/data
+      min.insync.replicas=2
+      num.partitions=3
+      zookeeper.connect=prod-zookeeper-0:2181,prod-zookeeper-1:2181,prod-zookeeper-2:2181/prod
+  kafka-2-0-kafka_jaas.conf:
+    content: |
+      KafkaServer {
+        org.apache.kafka.common.security.scram.ScramLoginModule required
+        username="kafka"
+        password="${PACK_SECRET_PROD_KAFKA_SASL_PASSWORD}";
+      };
+  kafka-2-1-server.properties:
+    content: |
+      broker.id.generation.enable=true
+      listeners=PLAINTEXT://:9092,INTERNAL://:9093
+      log.dirs=/var/lib/kafka/data
+      min.insync.replicas=2
+      num.partitions=3
+      zookeeper.connect=prod-zookeeper-0:2181,prod-zookeeper-1:2181,prod-zookeeper-2:2181/prod
+  ranger-db-0-postgresql.conf:
+    content: |
+      listen_addresses=*
+      max_connections=100
+      port=5432
+      shared_buffers=128MB
+  zookeeper-0-0-zoo.cfg:
+    content: |
+      clientPort=2181
+      dataDir=/var/lib/zookeeper
+      initLimit=10
+      server.1=prod-zookeeper-0:2888:3888
+      server.2=prod-zookeeper-1:2888:3888
+      server.3=prod-zookeeper-2:2888:3888
+      syncLimit=5
+      tickTime=2000
+  zookeeper-0-1-myid:
+    content: |
+      1
+  zookeeper-1-0-zoo.cfg:
+    content: |
+      clientPort=2181
+      dataDir=/var/lib/zookeeper
+      initLimit=10
+      server.1=prod-zookeeper-0:2888:3888
+      server.2=prod-zookeeper-1:2888:3888
+      server.3=prod-zookeeper-2:2888:3888
+      syncLimit=5
+      tickTime=2000
+  zookeeper-1-1-myid:
+    content: |
+      2
+  zookeeper-2-0-zoo.cfg:
+    content: |
+      clientPort=2181
+      dataDir=/var/lib/zookeeper
+      initLimit=10
+      server.1=prod-zookeeper-0:2888:3888
+      server.2=prod-zookeeper-1:2888:3888
+      server.3=prod-zookeeper-2:2888:3888
+      syncLimit=5
+      tickTime=2000
+  zookeeper-2-1-myid:
+    content: |
+      3
+name: prod
+networks:
+  default:
+    name: prod
+secrets:
+  pack_secret_prod_kafka_tls_keystore_jks:
+    environment: PACK_SECRET_PROD_KAFKA_TLS_KEYSTORE_JKS
+services:
+  hive-db:
+    configs:
+    - source: hive-db-0-postgresql.conf
+      target: /etc/postgresql/postgresql.conf
+    container_name: prod-hive-db
+    cpu_shares: 2048
+    environment:
+      POSTGRES_PASSWORD: ${PACK_SECRET_PROD_HIVE_DB_PASSWORD}
+      POSTGRES_USER: postgres
+    healthcheck:
+      interval: 5s
+      retries: 3
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 5432 || bash -c '</dev/tcp/127.0.0.1/5432'
+      timeout: 3s
+    hostname: prod-hive-db
+    image: images/postgres:16.3
+    labels:
+      pack.horchestra.io/installation: prod
+      pack.horchestra.io/instance: "0"
+      pack.horchestra.io/key: hive-db
+      pack.horchestra.io/part: workload
+    mem_limit: 4294967296
+    mem_reservation: 4294967296
+    restart: unless-stopped
+    volumes:
+    - source: data-prod-hive-db
+      target: /var/lib/postgresql/data
+      type: volume
+  kafka-0:
+    command:
+    - --override
+    - min.insync.replicas=2
+    configs:
+    - mode: "0400"
+      source: kafka-0-0-kafka_jaas.conf
+      target: /opt/kafka/config/kafka_jaas.conf
+    - source: kafka-0-1-server.properties
+      target: /opt/kafka/config/server.properties
+    container_name: prod-kafka-0
+    cpu_shares: 8192
+    environment:
+      KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
+    healthcheck:
+      interval: 5s
+      retries: 3
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+      timeout: 3s
+    hostname: prod-kafka-0
+    image: images/kafka:3.7.1
+    labels:
+      pack.horchestra.io/installation: prod
+      pack.horchestra.io/instance: "0"
+      pack.horchestra.io/key: kafka
+      pack.horchestra.io/part: workload
+    mem_limit: 34359738368
+    mem_reservation: 34359738368
+    networks:
+      default:
+        aliases:
+        - prod-kafka
+    restart: unless-stopped
+    secrets:
+    - mode: "0400"
+      source: pack_secret_prod_kafka_tls_keystore_jks
+      target: /opt/kafka/config/keystore.jks
+    volumes:
+    - source: data-prod-kafka-0
+      target: /var/lib/kafka/data
+      type: volume
+    - read_only: true
+      source: images/jdk:21.0.4
+      target: /opt/java
+      type: image
+  kafka-1:
+    command:
+    - --override
+    - min.insync.replicas=2
+    configs:
+    - mode: "0400"
+      source: kafka-1-0-kafka_jaas.conf
+      target: /opt/kafka/config/kafka_jaas.conf
+    - source: kafka-1-1-server.properties
+      target: /opt/kafka/config/server.properties
+    container_name: prod-kafka-1
+    cpu_shares: 8192
+    environment:
+      KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
+    healthcheck:
+      interval: 5s
+      retries: 3
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+      timeout: 3s
+    hostname: prod-kafka-1
+    image: images/kafka:3.7.1
+    labels:
+      pack.horchestra.io/installation: prod
+      pack.horchestra.io/instance: "1"
+      pack.horchestra.io/key: kafka
+      pack.horchestra.io/part: workload
+    mem_limit: 34359738368
+    mem_reservation: 34359738368
+    networks:
+      default:
+        aliases:
+        - prod-kafka
+    restart: unless-stopped
+    secrets:
+    - mode: "0400"
+      source: pack_secret_prod_kafka_tls_keystore_jks
+      target: /opt/kafka/config/keystore.jks
+    volumes:
+    - source: data-prod-kafka-1
+      target: /var/lib/kafka/data
+      type: volume
+    - read_only: true
+      source: images/jdk:21.0.4
+      target: /opt/java
+      type: image
+  kafka-2:
+    command:
+    - --override
+    - min.insync.replicas=2
+    configs:
+    - mode: "0400"
+      source: kafka-2-0-kafka_jaas.conf
+      target: /opt/kafka/config/kafka_jaas.conf
+    - source: kafka-2-1-server.properties
+      target: /opt/kafka/config/server.properties
+    container_name: prod-kafka-2
+    cpu_shares: 8192
+    environment:
+      KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
+    healthcheck:
+      interval: 5s
+      retries: 3
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+      timeout: 3s
+    hostname: prod-kafka-2
+    image: images/kafka:3.7.1
+    labels:
+      pack.horchestra.io/installation: prod
+      pack.horchestra.io/instance: "2"
+      pack.horchestra.io/key: kafka
+      pack.horchestra.io/part: workload
+    mem_limit: 34359738368
+    mem_reservation: 34359738368
+    networks:
+      default:
+        aliases:
+        - prod-kafka
+    restart: unless-stopped
+    secrets:
+    - mode: "0400"
+      source: pack_secret_prod_kafka_tls_keystore_jks
+      target: /opt/kafka/config/keystore.jks
+    volumes:
+    - source: data-prod-kafka-2
+      target: /var/lib/kafka/data
+      type: volume
+    - read_only: true
+      source: images/jdk:21.0.4
+      target: /opt/java
+      type: image
+  ranger-db:
+    configs:
+    - source: ranger-db-0-postgresql.conf
+      target: /etc/postgresql/postgresql.conf
+    container_name: prod-ranger-db
+    cpu_shares: 512
+    environment:
+      POSTGRES_PASSWORD: ${PACK_SECRET_PROD_RANGER_DB_PASSWORD}
+      POSTGRES_USER: postgres
+    healthcheck:
+      interval: 5s
+      retries: 3
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 5432 || bash -c '</dev/tcp/127.0.0.1/5432'
+      timeout: 3s
+    hostname: prod-ranger-db
+    image: images/postgres:16.3
+    labels:
+      pack.horchestra.io/installation: prod
+      pack.horchestra.io/instance: "0"
+      pack.horchestra.io/key: ranger-db
+      pack.horchestra.io/part: workload
+    mem_limit: 536870912
+    mem_reservation: 536870912
+    restart: unless-stopped
+    volumes:
+    - source: data-prod-ranger-db
+      target: /var/lib/postgresql/data
+      type: volume
+  zookeeper-0:
+    configs:
+    - source: zookeeper-0-0-zoo.cfg
+      target: /conf/zoo.cfg
+    - source: zookeeper-0-1-myid
+      target: /var/lib/zookeeper/myid
+    container_name: prod-zookeeper-0
+    cpu_shares: 512
+    environment:
+      JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
+    healthcheck:
+      interval: 5s
+      retries: 3
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+      timeout: 3s
+    hostname: prod-zookeeper-0
+    image: images/zookeeper:3.9.2
+    labels:
+      pack.horchestra.io/installation: prod
+      pack.horchestra.io/instance: "0"
+      pack.horchestra.io/key: zookeeper
+      pack.horchestra.io/part: workload
+    mem_limit: 1073741824
+    mem_reservation: 1073741824
+    networks:
+      default:
+        aliases:
+        - prod-zookeeper
+    restart: unless-stopped
+    volumes:
+    - source: data-prod-zookeeper-0
+      target: /var/lib/zookeeper
+      type: volume
+    - read_only: true
+      source: images/jdk:21.0.4
+      target: /opt/java
+      type: image
+  zookeeper-1:
+    configs:
+    - source: zookeeper-1-0-zoo.cfg
+      target: /conf/zoo.cfg
+    - source: zookeeper-1-1-myid
+      target: /var/lib/zookeeper/myid
+    container_name: prod-zookeeper-1
+    cpu_shares: 512
+    environment:
+      JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
+    healthcheck:
+      interval: 5s
+      retries: 3
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+      timeout: 3s
+    hostname: prod-zookeeper-1
+    image: images/zookeeper:3.9.2
+    labels:
+      pack.horchestra.io/installation: prod
+      pack.horchestra.io/instance: "1"
+      pack.horchestra.io/key: zookeeper
+      pack.horchestra.io/part: workload
+    mem_limit: 1073741824
+    mem_reservation: 1073741824
+    networks:
+      default:
+        aliases:
+        - prod-zookeeper
+    restart: unless-stopped
+    volumes:
+    - source: data-prod-zookeeper-1
+      target: /var/lib/zookeeper
+      type: volume
+    - read_only: true
+      source: images/jdk:21.0.4
+      target: /opt/java
+      type: image
+  zookeeper-2:
+    configs:
+    - source: zookeeper-2-0-zoo.cfg
+      target: /conf/zoo.cfg
+    - source: zookeeper-2-1-myid
+      target: /var/lib/zookeeper/myid
+    container_name: prod-zookeeper-2
+    cpu_shares: 512
+    environment:
+      JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
+    healthcheck:
+      interval: 5s
+      retries: 3
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+      timeout: 3s
+    hostname: prod-zookeeper-2
+    image: images/zookeeper:3.9.2
+    labels:
+      pack.horchestra.io/installation: prod
+      pack.horchestra.io/instance: "2"
+      pack.horchestra.io/key: zookeeper
+      pack.horchestra.io/part: workload
+    mem_limit: 1073741824
+    mem_reservation: 1073741824
+    networks:
+      default:
+        aliases:
+        - prod-zookeeper
+    restart: unless-stopped
+    volumes:
+    - source: data-prod-zookeeper-2
+      target: /var/lib/zookeeper
+      type: volume
+    - read_only: true
+      source: images/jdk:21.0.4
+      target: /opt/java
+      type: image
+volumes:
+  data-prod-hive-db:
+    name: data-prod-hive-db
+  data-prod-kafka-0:
+    name: data-prod-kafka-0
+  data-prod-kafka-1:
+    name: data-prod-kafka-1
+  data-prod-kafka-2:
+    name: data-prod-kafka-2
+  data-prod-ranger-db:
+    name: data-prod-ranger-db
+  data-prod-zookeeper-0:
+    name: data-prod-zookeeper-0
+  data-prod-zookeeper-1:
+    name: data-prod-zookeeper-1
+  data-prod-zookeeper-2:
+    name: data-prod-zookeeper-2

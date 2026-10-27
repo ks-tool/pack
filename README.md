@@ -101,6 +101,20 @@ kubeconfig, context and namespace from the environment — resolves `${secret:�
 applies, runs hooks as Jobs and keeps the installation's record in the ConfigMap `pack-<installation>`
 (`examples/adh/envs/k8s.yaml`, golden output in `target/k8s/testdata/adh`).
 
+**Docker.** `--target docker` runs `pack-provider-docker`: one engine, the installation's own network (`network`,
+default the installation's name). A key becomes a container `<installation>-<key>`, or `<installation>-<key>-<i>` per
+replica, each also answering to `<installation>-<key>` on the network; its config files are copied into the container
+before it starts (a per-instance file into its own container), its claims named volumes `<claim>-<container>`, its
+libraries image mounts (Docker ≥ 28), its readiness a healthcheck (`nc`/`bash` for tcp, `curl`/`wget` for http — the
+image has to have one). Its half of the platform is `replicas` and `publish` (host ports by port name); it performs the
+saga's steps with the `docker` CLI — `host`, `context` from the environment — and recreates a container only when what
+it runs changed. `${secret:<name>/<key>}` is a credential pack provisioned, kept in the installation's state, else the environment's
+`secrets: {<name>: {<key>: …}}` (its file or its Vault KV). The state — the installation's record and those
+credentials — is kept on the engine, in labels of volumes that hold nothing (`pack-<installation>.<generation>`), or,
+with `state: <file>`, in that file: JSON, every installation of the environment by name, 0600, written under a lock
+(a relative path is the provider's working directory's). `pack template` writes the same as `compose.yaml`, the secrets as variables
+`PACK_SECRET_<NAME>_<KEY>` (`examples/adh/envs/docker.yaml`, golden output in `target/docker/testdata/adh`).
+
 **Environments.** A pack is described once — its values — and installed into as many environments as there are
 files: `--config envs/prod.yaml` says where (`target`, `provider`) and what the target needs (a namespace, an
 inventory…), and names the Vault KV of that environment (`vault.addr`, `vault.paths`; the token from `$VAULT_TOKEN`
@@ -137,6 +151,7 @@ pack/
   cmd/pack/            the CLI
   cmd/pack-provider-horchestra/  the horchestra provider: target/horchestra behind the provider protocol
   cmd/pack-provider-k8s/         the Kubernetes provider: target/k8s — StatefulSets, Services, Secrets; steps through kubectl
+  cmd/pack-provider-docker/      the Docker provider: target/docker — a container per instance, compose for reading; steps through docker
   proto/               provider.proto — the protocol between pack and a provider; gen.sh regenerates provider/providerpb
   provider/            Launch (pack's side: a provider binary as a target.Target) and Serve (a provider binary's main)
   environment/         an environment: its file and Vault KV, the set its provider gets (app-config)

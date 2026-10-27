@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pack:platform:docker",
+  "type": "object",
+  "properties": {
+    "replicas": {"type": "integer", "minimum": 0, "default": 1},
+    "publish": {
+      "description": "Host ports by port name: the port the engine's host listens on for the container's.",
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 65535}
+    }
+  }
+}

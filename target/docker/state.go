@@ -1,0 +1,304 @@
+package docker
+
+import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+)
+
+// state is where an installation's record and the credentials pack
+// provisioned for it are kept: on the engine (engineState), or in a file
+// the environment names (fileState, the setting state).
+type state interface {
+	read(ctx context.Context) (record []byte, exists bool, err error)
+	write(ctx context.Context, record []byte) error
+	// secret is a kept credential's value.
+	secret(ctx context.Context, name, key string) (value string, ok bool, err error)
+	// keep stores a credential, replacing a value that changed.
+	keep(ctx context.Context, name, key, value string) error
+}
+
+const (
+	labelRecord     = "pack.horchestra.io/record"
+	labelGeneration = "pack.horchestra.io/generation"
+	labelSecret     = "pack.horchestra.io/secret"
+	labelSecretKey  = "pack.horchestra.io/secret-key"
+	labelValue      = "pack.horchestra.io/value"
+)
+
+// engineState keeps the state on the engine, in volumes that hold nothing.
+// The record is the label of pack-<installation>.<generation>, gzipped. A
+// volume's labels are fixed, so a write makes the next generation and then
+// removes the ones before it; a write cut short leaves two, and the newer is
+// read. A credential is a volume of its own, the value in its label —
+// readable by whoever can reach the engine, who is root on its host anyway.
+type engineState struct{ in *Installation }
+
+func (s engineState) records(ctx context.Context) (gen int, names []string, record string, err error) {
+	in := s.in
+	names, err = in.lines(ctx, append([]string{"volume", "ls", "-q"}, in.filters(labelPart+"=record")...)...)
+	if err != nil || len(names) == 0 {
+		return -1, nil, "", err
+	}
+	rows, err := in.lines(ctx, append([]string{"volume", "inspect", "--format",
+		`{{index .Labels "` + labelGeneration + `"}} {{index .Labels "` + labelRecord + `"}}`}, names...)...)
+	if err != nil {
+		return -1, nil, "", err
+	}
+	gen = -1
+	for _, r := range rows {
+		g, rec, _ := strings.Cut(r, " ")
+		if n, err := strconv.Atoi(g); err == nil && n > gen {
+			gen, record = n, rec
+		}
+	}
+	return gen, names, record, nil
+}
+
+func (s engineState) read(ctx context.Context) ([]byte, bool, error) {
+	gen, _, rec, err := s.records(ctx)
+	if err != nil || gen < 0 || rec == "" {
+		return nil, false, err
+	}
+	z, err := base64.StdEncoding.DecodeString(rec)
+	if err != nil {
+		return nil, false, err
+	}
+	r, err := gzip.NewReader(bytes.NewReader(z))
+	if err != nil {
+		return nil, false, err
+	}
+	b, err := io.ReadAll(r)
+	return b, err == nil, err
+}
+
+func (s engineState) write(ctx context.Context, record []byte) error {
+	in := s.in
+	gen, old, _, err := s.records(ctx)
+	if err != nil {
+		return err
+	}
+	var z bytes.Buffer
+	w := gzip.NewWriter(&z)
+	_, _ = w.Write(record)
+	_ = w.Close()
+	next := gen + 1
+	if _, err := in.docker(ctx, nil, nil, nil, "volume", "create",
+		"--label", labelInstallation+"="+in.installation, "--label", labelPart+"=record",
+		"--label", labelGeneration+"="+strconv.Itoa(next),
+		"--label", labelRecord+"="+base64.StdEncoding.EncodeToString(z.Bytes()),
+		fmt.Sprintf("pack-%s.%d", in.installation, next)); err != nil {
+		return err
+	}
+	if len(old) > 0 {
+		_, err = in.docker(ctx, nil, nil, nil, append([]string{"volume", "rm"}, old...)...)
+	}
+	return err
+}
+
+// secrets are the volumes that keep a credential, and the value of the first.
+func (s engineState) secrets(ctx context.Context, name, key string) (string, []string, error) {
+	in := s.in
+	names, err := in.lines(ctx, append([]string{"volume", "ls", "-q"},
+		in.filters(labelSecret+"="+name, labelSecretKey+"="+key)...)...)
+	if err != nil || len(names) == 0 {
+		return "", nil, err
+	}
+	enc, err := in.docker(ctx, nil, nil, nil, "volume", "inspect", "--format", `{{index .Labels "`+labelValue+`"}}`, names[0])
+	if err != nil {
+		return "", nil, err
+	}
+	v, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(enc)))
+	return string(v), names, err
+}
+
+func (s engineState) secret(ctx context.Context, name, key string) (string, bool, error) {
+	v, names, err := s.secrets(ctx, name, key)
+	return v, len(names) > 0, err
+}
+
+func (s engineState) keep(ctx context.Context, name, key, value string) error {
+	in := s.in
+	val, names, err := s.secrets(ctx, name, key)
+	if err != nil || (len(names) == 1 && val == value) {
+		return err
+	}
+	if len(names) > 0 {
+		if _, err := in.docker(ctx, nil, nil, nil, append([]string{"volume", "rm"}, names...)...); err != nil {
+			return err
+		}
+	}
+	sum := sha256.Sum256([]byte(in.installation + "/" + name + "/" + key))
+	_, err = in.docker(ctx, nil, nil, nil, "volume", "create",
+		"--label", labelInstallation+"="+in.installation, "--label", labelPart+"=secret",
+		"--label", labelSecret+"="+name, "--label", labelSecretKey+"="+key,
+		"--label", labelValue+"="+base64.StdEncoding.EncodeToString([]byte(value)),
+		containerName("pack-secret-"+name+"-"+hex.EncodeToString(sum[:4])))
+	return err
+}
+
+// fileState keeps the state in a file, JSON, the installations it holds by
+// name — one file serves every installation of an environment:
+//
+//	{"installations": {"prod": {"record": {…}, "secrets": {"<name>/<key>": "…"}}}}
+//
+// It holds credentials in plain text: 0600, in a directory made 0700. A
+// write takes an exclusive lock on <file>.lock, reads, changes and replaces
+// the file by rename — a reader sees the old file or the new one.
+type fileState struct{ path, installation string }
+
+type stateFile struct {
+	Installations map[string]*installationState `json:"installations"`
+}
+
+type installationState struct {
+	Record  json.RawMessage   `json:"record,omitempty"`
+	Secrets map[string]string `json:"secrets,omitempty"`
+}
+
+// newFileState is the state in path; ~/ is the home directory, a relative
+// path is the provider's working directory's.
+func newFileState(path, installation string) (*fileState, error) {
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("state %s: %w", path, err)
+		}
+		path = filepath.Join(home, rest)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("state %s: %w", path, err)
+	}
+	return &fileState{path: abs, installation: installation}, nil
+}
+
+func (s *fileState) load() (*stateFile, error) {
+	f := &stateFile{Installations: map[string]*installationState{}}
+	b, err := os.ReadFile(s.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return f, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(b, f); err != nil {
+		return nil, fmt.Errorf("state %s: %w", s.path, err)
+	}
+	if f.Installations == nil {
+		f.Installations = map[string]*installationState{}
+	}
+	return f, nil
+}
+
+// update changes the installation's entry under the lock and writes the file.
+func (s *fileState) update(change func(*installationState) bool) error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("state %s: lock: %w", s.path, err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	f, err := s.load()
+	if err != nil {
+		return err
+	}
+	st := f.Installations[s.installation]
+	if st == nil {
+		st = &installationState{}
+		f.Installations[s.installation] = st
+	}
+	if !change(st) {
+		return nil
+	}
+	b, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(append(b, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), s.path)
+}
+
+func (s *fileState) read(context.Context) ([]byte, bool, error) {
+	f, err := s.load()
+	if err != nil {
+		return nil, false, err
+	}
+	st := f.Installations[s.installation]
+	if st == nil || len(st.Record) == 0 {
+		return nil, false, nil
+	}
+	// the file is indented for reading; the record is given back compact, as
+	// the saga marshals it
+	var b bytes.Buffer
+	if err := json.Compact(&b, st.Record); err != nil {
+		return nil, false, err
+	}
+	return b.Bytes(), true, nil
+}
+
+func (s *fileState) write(_ context.Context, record []byte) error {
+	if !json.Valid(record) {
+		return fmt.Errorf("state %s: the record is not JSON", s.path)
+	}
+	return s.update(func(st *installationState) bool {
+		st.Record = json.RawMessage(record)
+		return true
+	})
+}
+
+func (s *fileState) secret(_ context.Context, name, key string) (string, bool, error) {
+	f, err := s.load()
+	if err != nil {
+		return "", false, err
+	}
+	st := f.Installations[s.installation]
+	if st == nil {
+		return "", false, nil
+	}
+	v, ok := st.Secrets[name+"/"+key]
+	return v, ok, nil
+}
+
+func (s *fileState) keep(_ context.Context, name, key, value string) error {
+	return s.update(func(st *installationState) bool {
+		if v, ok := st.Secrets[name+"/"+key]; ok && v == value {
+			return false
+		}
+		if st.Secrets == nil {
+			st.Secrets = map[string]string{}
+		}
+		st.Secrets[name+"/"+key] = value
+		return true
+	})
+}
