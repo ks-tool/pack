@@ -25,12 +25,14 @@ func (r *render) convert(v Values) (*Release, error) {
 	} else if r.b.Root.Rollout != nil {
 		out.Rollout = r.b.Root.Rollout
 	}
+	out.Platforms = map[string]map[string]any{}
 	for _, key := range r.order {
 		u, err := r.unit(key)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", key, err)
 		}
 		out.Units = append(out.Units, *u)
+		out.Platforms[key] = r.resolved[key].Platform
 	}
 	out.Report = r.report
 	return out, nil

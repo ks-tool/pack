@@ -25,8 +25,12 @@ type Release struct {
 	// Rollout is the operator's, else the composition's; nil when neither says.
 	Rollout *packschema.Rollout
 	// Units are the selected keys in install order.
-	Units  []Unit
-	Report Report
+	Units []Unit
+	// Platforms are the target's halves of the keys' platforms as the target
+	// resolved them — kept in the record, so that this version is rendered
+	// again as it was installed (Context.Installed).
+	Platforms map[string]map[string]any
+	Report    Report
 }
 
 // Unit is one key of the composition: one program, run from an image, as

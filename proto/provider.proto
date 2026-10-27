@@ -85,6 +85,10 @@ message ResolveRequest {
   // scale is the component's x-pack.scale: single or replicas.
   string scale = 2;
   bytes platform_json = 3;
+  // installed: platform_json is the target's half as the target resolved it
+  // when the installed version was installed, kept in the record — resolve
+  // the key as it says, consulting neither the environment nor defaults.
+  bool installed = 4;
 }
 
 message ResolveResponse {

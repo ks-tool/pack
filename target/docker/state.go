@@ -45,15 +45,18 @@ const (
 // removes the ones before it; a write cut short leaves two, and the newer is
 // read. A credential is a volume of its own, the value in its label —
 // readable by whoever can reach the engine, who is root on its host anyway.
+// Across hosts it is the first host's engine, by name.
 type engineState struct{ in *Installation }
+
+func (s engineState) engine() *engine { return s.in.engines[0] }
 
 func (s engineState) records(ctx context.Context) (gen int, names []string, record string, err error) {
 	in := s.in
-	names, err = in.lines(ctx, append([]string{"volume", "ls", "-q"}, in.filters(labelPart+"=record")...)...)
+	names, err = s.engine().lines(ctx, append([]string{"volume", "ls", "-q"}, in.filters(labelPart+"=record")...)...)
 	if err != nil || len(names) == 0 {
 		return -1, nil, "", err
 	}
-	rows, err := in.lines(ctx, append([]string{"volume", "inspect", "--format",
+	rows, err := s.engine().lines(ctx, append([]string{"volume", "inspect", "--format",
 		`{{index .Labels "` + labelGeneration + `"}} {{index .Labels "` + labelRecord + `"}}`}, names...)...)
 	if err != nil {
 		return -1, nil, "", err
@@ -96,7 +99,7 @@ func (s engineState) write(ctx context.Context, record []byte) error {
 	_, _ = w.Write(record)
 	_ = w.Close()
 	next := gen + 1
-	if _, err := in.docker(ctx, nil, nil, nil, "volume", "create",
+	if _, err := s.engine().docker(ctx, nil, nil, nil, "volume", "create",
 		"--label", labelInstallation+"="+in.installation, "--label", labelPart+"=record",
 		"--label", labelGeneration+"="+strconv.Itoa(next),
 		"--label", labelRecord+"="+base64.StdEncoding.EncodeToString(z.Bytes()),
@@ -104,7 +107,7 @@ func (s engineState) write(ctx context.Context, record []byte) error {
 		return err
 	}
 	if len(old) > 0 {
-		_, err = in.docker(ctx, nil, nil, nil, append([]string{"volume", "rm"}, old...)...)
+		_, err = s.engine().docker(ctx, nil, nil, nil, append([]string{"volume", "rm"}, old...)...)
 	}
 	return err
 }
@@ -112,12 +115,12 @@ func (s engineState) write(ctx context.Context, record []byte) error {
 // secrets are the volumes that keep a credential, and the value of the first.
 func (s engineState) secrets(ctx context.Context, name, key string) (string, []string, error) {
 	in := s.in
-	names, err := in.lines(ctx, append([]string{"volume", "ls", "-q"},
+	names, err := s.engine().lines(ctx, append([]string{"volume", "ls", "-q"},
 		in.filters(labelSecret+"="+name, labelSecretKey+"="+key)...)...)
 	if err != nil || len(names) == 0 {
 		return "", nil, err
 	}
-	enc, err := in.docker(ctx, nil, nil, nil, "volume", "inspect", "--format", `{{index .Labels "`+labelValue+`"}}`, names[0])
+	enc, err := s.engine().docker(ctx, nil, nil, nil, "volume", "inspect", "--format", `{{index .Labels "`+labelValue+`"}}`, names[0])
 	if err != nil {
 		return "", nil, err
 	}
@@ -137,12 +140,12 @@ func (s engineState) keep(ctx context.Context, name, key, value string) error {
 		return err
 	}
 	if len(names) > 0 {
-		if _, err := in.docker(ctx, nil, nil, nil, append([]string{"volume", "rm"}, names...)...); err != nil {
+		if _, err := s.engine().docker(ctx, nil, nil, nil, append([]string{"volume", "rm"}, names...)...); err != nil {
 			return err
 		}
 	}
 	sum := sha256.Sum256([]byte(in.installation + "/" + name + "/" + key))
-	_, err = in.docker(ctx, nil, nil, nil, "volume", "create",
+	_, err = s.engine().docker(ctx, nil, nil, nil, "volume", "create",
 		"--label", labelInstallation+"="+in.installation, "--label", labelPart+"=secret",
 		"--label", labelSecret+"="+name, "--label", labelSecretKey+"="+key,
 		"--label", labelValue+"="+base64.StdEncoding.EncodeToString([]byte(value)),

@@ -99,21 +99,31 @@ image volumes (a runtime that has them: CRI-O, containerd ≥ 2.1, the ImageVolu
 `replicas`, `nodeSelector`, `priorityClassName`, `storageClass`; it performs the saga's steps with `kubectl` — the
 kubeconfig, context and namespace from the environment — resolves `${secret:…}` from the cluster's Secrets when it
 applies, runs hooks as Jobs and keeps the installation's record in the ConfigMap `pack-<installation>`
-(`examples/adh/envs/k8s.yaml`, golden output in `target/k8s/testdata/adh`).
+(`examples/adh/envs/k8s.yaml`, golden output in `target/k8s/testdata/adh`). Every setting:
+[target/k8s/README.md](target/k8s/README.md).
 
-**Docker.** `--target docker` runs `pack-provider-docker`: one engine, the installation's own network (`network`,
-default the installation's name). A key becomes a container `<installation>-<key>`, or `<installation>-<key>-<i>` per
-replica, each also answering to `<installation>-<key>` on the network; its config files are copied into the container
-before it starts (a per-instance file into its own container), its claims named volumes `<claim>-<container>`, its
-libraries image mounts (Docker ≥ 28), its readiness a healthcheck (`nc`/`bash` for tcp, `curl`/`wget` for http — the
-image has to have one). Its half of the platform is `replicas` and `publish` (host ports by port name); it performs the
-saga's steps with the `docker` CLI — `host`, `context` from the environment — and recreates a container only when what
-it runs changed. `${secret:<name>/<key>}` is a credential pack provisioned, kept in the installation's state, else the environment's
-`secrets: {<name>: {<key>: …}}` (its file or its Vault KV). The state — the installation's record and those
-credentials — is kept on the engine, in labels of volumes that hold nothing (`pack-<installation>.<generation>`), or,
-with `state: <file>`, in that file: JSON, every installation of the environment by name, 0600, written under a lock
-(a relative path is the provider's working directory's). `pack template` writes the same as `compose.yaml`, the secrets as variables
-`PACK_SECRET_<NAME>_<KEY>` (`examples/adh/envs/docker.yaml`, golden output in `target/docker/testdata/adh`).
+**Docker.** `--target docker` runs `pack-provider-docker`: one engine, or the hosts the environment names, each its
+own engine (`hosts: {<name>: {address, host, context}}` — `address` an IP or a DNS name, `host`/`context` docker's).
+A key becomes a container `<installation>-<key>`, or `<installation>-<key>-<i>` per replica. On one engine they reach
+each other by name on the installation's network (`network`, default its name), a replica also answering to
+`<installation>-<key>`. Across hosts the operator says where a key runs — `platform: {<key>: {hosts: [a, b, c]}}`,
+instance i on the i-th, replicas as many as the hosts — and a neighbour reaches an instance at `<address>:<port>`, the
+component's port, which the host publishes as itself: two containers with one port on one host are refused. A
+container's config files are kept in a volume of its own on its host, `<container>-files-<hash>`, mounted file by file
+(`volume-subpath`; binary files as they are, any engine endpoint, no ssh), replaced when they change and removed with the
+key; its claims are named volumes `<claim>-<container>`, which stay; its libraries image mounts (Docker ≥ 28); its
+readiness a healthcheck (`nc`/`bash` for tcp, `curl`/`wget` for http — the image has to have one). Its half of the
+platform is `replicas`, `hosts` and, on one engine, `publish` (host ports by port name); it performs the saga's steps
+with the `docker` CLI, a hook on replica 0's host, and recreates a container only when what it runs changed — an
+instance moved to another host starts there, its claims stay on the old one. `${secret:<name>/<key>}` is a credential
+pack provisioned, kept in the installation's state, else the environment's `secrets: {<name>: {<key>: …}}` (its file
+or its Vault KV). The state — the installation's record and those credentials — is kept on the engine (the first
+host's, by name), in labels of volumes that hold nothing (`pack-<installation>.<generation>`), or, with
+`state: <file>`, in that file: JSON, every installation of the environment by name, 0600, written under a lock (a
+relative path is the provider's working directory's). `pack template` writes `containers.yaml` and the files under
+`files/<container>/`, and with `compose: true` a compose file per host binding them — the output directory is the
+bundle (`examples/adh/envs/docker.yaml`, `docker-hosts.yaml`; golden output in `target/docker/testdata/adh`,
+`adh-hosts`). Every setting: [target/docker/README.md](target/docker/README.md).
 
 **Environments.** A pack is described once — its values — and installed into as many environments as there are
 files: `--config envs/prod.yaml` says where (`target`, `provider`) and what the target needs (a namespace, an
@@ -151,7 +161,7 @@ pack/
   cmd/pack/            the CLI
   cmd/pack-provider-horchestra/  the horchestra provider: target/horchestra behind the provider protocol
   cmd/pack-provider-k8s/         the Kubernetes provider: target/k8s — StatefulSets, Services, Secrets; steps through kubectl
-  cmd/pack-provider-docker/      the Docker provider: target/docker — a container per instance, compose for reading; steps through docker
+  cmd/pack-provider-docker/      the Docker provider: target/docker — a container per instance on one engine or across hosts; steps through docker
   proto/               provider.proto — the protocol between pack and a provider; gen.sh regenerates provider/providerpb
   provider/            Launch (pack's side: a provider binary as a target.Target) and Serve (a provider binary's main)
   environment/         an environment: its file and Vault KV, the set its provider gets (app-config)
@@ -187,6 +197,9 @@ pack/
 - [docs/emitters.md](docs/emitters.md) — file formats
 - [docs/artifacts.md](docs/artifacts.md) — building and publishing with `oci-packer`
 - [docs/saga.md](docs/saga.md) — upgrades: hooks, savepoints, rollback
+- [target/docker/README.md](target/docker/README.md) — the Docker target: every setting, one engine or several hosts,
+  files, state, the compose bundle
+- [target/k8s/README.md](target/k8s/README.md) — the Kubernetes target: every setting, the objects, steps, secrets
 
 ## Building and testing
 

@@ -59,9 +59,10 @@ func (in *Installation) PlatformSchema() []byte { return platformSchema }
 // at <service>-<i>.<service>.<namespace>.svc. The target's half of a key's
 // platform is what the values say, under what the environment says of the
 // key (platform_<key>_replicas, …_nodeselector_<label>, …_priorityclassname,
-// …_storageclass), replicas 1 when neither does.
-func (in *Installation) Resolve(key, scale string, platform map[string]any) (*render.Resolved, error) {
-	own, err := in.platformOf(key, platform)
+// …_storageclass), replicas 1 when neither does; installed, what the record
+// kept.
+func (in *Installation) Resolve(key, scale string, platform map[string]any, installed bool) (*render.Resolved, error) {
+	own, err := in.platformOf(key, platform, installed)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +78,7 @@ func (in *Installation) Resolve(key, scale string, platform map[string]any) (*re
 	return res, nil
 }
 
-func (in *Installation) platformOf(key string, platform map[string]any) (map[string]any, error) {
+func (in *Installation) platformOf(key string, platform map[string]any, installed bool) (map[string]any, error) {
 	own := map[string]any{"replicas": int64(1)}
 	for _, k := range []string{"replicas", "nodeSelector", "priorityClassName", "storageClass"} {
 		if v, ok := platform[k]; ok {
@@ -86,6 +87,9 @@ func (in *Installation) platformOf(key string, platform map[string]any) (map[str
 	}
 	prefix := "platform_" + strings.ToLower(key) + "_"
 	for k, v := range in.settings {
+		if installed {
+			break
+		}
 		rest, ok := strings.CutPrefix(k, prefix)
 		if !ok {
 			continue

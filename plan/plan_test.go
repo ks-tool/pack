@@ -315,6 +315,28 @@ func TestPlan_ConfigOnlyChange(t *testing.T) {
 	}
 }
 
+// A change that reaches no file — the platform, where and as how many a key
+// runs, its resources — is a change of the key all the same: "config", an
+// apply without hooks.
+func TestPlan_PlatformOnlyChange(t *testing.T) {
+	adh := filepath.Join("..", "examples", "adh")
+	fromB, fromOut := load(t, adh, values(t))
+	v := values(t)
+	v.Values["ranger-db"].(map[string]any)["platform"] = map[string]any{"resources": map[string]any{"limits": map[string]any{"cpu": "3"}}}
+	toB, toOut := load(t, adh, v)
+	p, err := Build(Input{From: fromB, To: toB, FromOut: fromOut, ToOut: toOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]string{}
+	for _, c := range p.Changes {
+		kinds[c.Key] = c.Kind
+	}
+	if kinds["ranger-db"] != "config" || kinds["kafka"] != "none" {
+		t.Errorf("changes: %v", kinds)
+	}
+}
+
 // Undoing postgres's upgrade runs the INSTALLED version's downgrade hooks:
 // a preDowngrade hook of postgres 15.6, its `when` matched against the
 // reverse transition (16.3 → 15.6), its image the version being restored.

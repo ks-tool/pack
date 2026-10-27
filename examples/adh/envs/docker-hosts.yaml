@@ -1,0 +1,20 @@
+# An environment of adh: three Docker hosts. The operator says where each key
+# runs — instance i on the i-th of its hosts — and a neighbour reaches an
+# instance at its host's address (an IP or a DNS name) and the component's
+# port, which the host publishes: the two Postgres, both on 5432, on hosts of
+# their own.
+target: docker
+state: ~/.local/state/pack/adh-docker.json
+hosts:
+  a: {address: 10.0.0.11, host: ssh://ops@10.0.0.11}
+  b: {address: 10.0.0.12, host: ssh://ops@10.0.0.12}
+  c: {address: node-c.dc1.example, host: tcp://node-c.dc1.example:2376}
+platform:
+  zookeeper:
+    hosts: [a, b, c]
+  kafka:
+    hosts: [a, b, c]
+  hive-db:
+    hosts: [a]
+  ranger-db:
+    hosts: [b]

@@ -301,3 +301,29 @@ func TestPreviousIsRecorded(t *testing.T) {
 		t.Errorf("previous: %+v", rec.Previous)
 	}
 }
+
+// A finished saga records the target's half of each key's platform as the
+// version it installed resolved it, and the one it replaced as Previous's:
+// rendered again, either is what was installed. A change of nothing but
+// where a key runs is a version of its own, to roll back to.
+func TestPlatformIsRecorded(t *testing.T) {
+	p, from, to := upgrade()
+	to.Platforms = map[string]map[string]any{"a": {"hosts": []any{"h2"}}}
+	m := &memory{}
+	rec := &Record{Pack: "new", Name: "x", Version: "2", State: Installed,
+		Platform: map[string]map[string]any{"a": {"hosts": []any{"h1"}}},
+		Saga:     &Progress{Pack: "new", Version: "2"}}
+	if err := (&Run{Plan: p, From: from, To: to, Exec: m, Record: rec}).Execute(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(got.Platform) != "map[a:map[hosts:[h2]]]" {
+		t.Errorf("platform: %v", got.Platform)
+	}
+	if got.Previous == nil || fmt.Sprint(got.Previous.Platform) != "map[a:map[hosts:[h1]]]" {
+		t.Errorf("previous: %+v", got.Previous)
+	}
+}

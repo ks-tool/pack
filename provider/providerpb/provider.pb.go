@@ -263,8 +263,12 @@ type ResolveRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Key   string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	// scale is the component's x-pack.scale: single or replicas.
-	Scale         string `protobuf:"bytes,2,opt,name=scale,proto3" json:"scale,omitempty"`
-	PlatformJson  []byte `protobuf:"bytes,3,opt,name=platform_json,json=platformJson,proto3" json:"platform_json,omitempty"`
+	Scale        string `protobuf:"bytes,2,opt,name=scale,proto3" json:"scale,omitempty"`
+	PlatformJson []byte `protobuf:"bytes,3,opt,name=platform_json,json=platformJson,proto3" json:"platform_json,omitempty"`
+	// installed: platform_json is the target's half as the target resolved it
+	// when the installed version was installed, kept in the record — resolve
+	// the key as it says, consulting neither the environment nor defaults.
+	Installed     bool `protobuf:"varint,4,opt,name=installed,proto3" json:"installed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -318,6 +322,13 @@ func (x *ResolveRequest) GetPlatformJson() []byte {
 		return x.PlatformJson
 	}
 	return nil
+}
+
+func (x *ResolveRequest) GetInstalled() bool {
+	if x != nil {
+		return x.Installed
+	}
+	return false
 }
 
 type ResolveResponse struct {
@@ -2405,11 +2416,12 @@ const file_provider_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"Z\n" +
 	"\x11ConfigureResponse\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12'\n" +
-	"\x0fplatform_schema\x18\x02 \x01(\fR\x0eplatformSchema\"]\n" +
+	"\x0fplatform_schema\x18\x02 \x01(\fR\x0eplatformSchema\"{\n" +
 	"\x0eResolveRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05scale\x18\x02 \x01(\tR\x05scale\x12#\n" +
-	"\rplatform_json\x18\x03 \x01(\fR\fplatformJson\"\xaa\x01\n" +
+	"\rplatform_json\x18\x03 \x01(\fR\fplatformJson\x12\x1c\n" +
+	"\tinstalled\x18\x04 \x01(\bR\tinstalled\"\xaa\x01\n" +
 	"\x0fResolveResponse\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x128\n" +

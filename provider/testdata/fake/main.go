@@ -42,7 +42,7 @@ func (i *inst) PlatformSchema() []byte                           { return nil }
 func (i *inst) ValidatePlatform(string, map[string]any) []string { return nil }
 
 // Resolve: replicas from the values (int64 over the wire), 1 by default.
-func (i *inst) Resolve(key, scale string, p map[string]any) (*render.Resolved, error) {
+func (i *inst) Resolve(key, scale string, p map[string]any, _ bool) (*render.Resolved, error) {
 	svc := i.name + "-" + key
 	n := int64(1)
 	if c, ok := p["replicas"].(int64); ok {

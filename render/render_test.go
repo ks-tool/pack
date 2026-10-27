@@ -19,7 +19,7 @@ type testTarget struct{ installation, namespace string }
 
 func (n testTarget) Namespace() string    { return n.namespace }
 func (testTarget) PlatformSchema() []byte { return nil }
-func (n testTarget) Resolve(key, scale string, p map[string]any) (*Resolved, error) {
+func (n testTarget) Resolve(key, scale string, p map[string]any, _ bool) (*Resolved, error) {
 	svc := n.installation + "-" + key
 	res := &Resolved{Service: svc, Address: svc + "." + n.namespace, Platform: map[string]any{}}
 	if scale == "replicas" {

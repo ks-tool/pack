@@ -2,15 +2,12 @@ package docker
 
 import (
 	"archive/tar"
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
+	"io/fs"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,63 +24,6 @@ const (
 	healthTimeout  = "3s"
 	healthRetries  = 3
 )
-
-// docker runs the docker CLI against the installation's engine; stdin, when
-// set, is what - reads, env is added to the CLI's environment. Output goes to
-// events line by line.
-func (in *Installation) docker(ctx context.Context, stdin io.Reader, env []string, events func(string), args ...string) ([]byte, error) {
-	cmd := in.command(ctx, args...)
-	cmd.Stdin = stdin
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	if events != nil {
-		sc := bufio.NewScanner(bytes.NewReader(stdout.Bytes()))
-		for sc.Scan() {
-			if line := strings.TrimSpace(sc.Text()); line != "" {
-				events(line)
-			}
-		}
-	}
-	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return stdout.Bytes(), fmt.Errorf("docker %s: %s", args[0], msg)
-	}
-	return stdout.Bytes(), nil
-}
-
-// command is the docker CLI with the engine's host and context.
-func (in *Installation) command(ctx context.Context, args ...string) *exec.Cmd {
-	var base []string
-	if in.host != "" {
-		base = append(base, "--host", in.host)
-	}
-	if in.context != "" {
-		base = append(base, "--context", in.context)
-	}
-	return exec.CommandContext(ctx, in.settings.Get("docker", "docker"), append(base, args...)...)
-}
-
-// lines runs docker and returns its output's non-empty lines.
-func (in *Installation) lines(ctx context.Context, args ...string) ([]string, error) {
-	out, err := in.docker(ctx, nil, nil, nil, args...)
-	if err != nil {
-		return nil, err
-	}
-	var ls []string
-	for l := range strings.SplitSeq(string(out), "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			ls = append(ls, l)
-		}
-	}
-	return ls, nil
-}
 
 func (in *Installation) filters(labels ...string) []string {
 	args := []string{"--filter", "label=" + labelInstallation + "=" + in.installation}
@@ -103,7 +43,7 @@ func (in *Installation) WriteInstalled(record []byte) error {
 	return in.state.write(context.Background(), record)
 }
 
-// Execute performs one step of the saga on the engine.
+// Execute performs one step of the saga on the engines.
 func (in *Installation) Execute(ctx context.Context, st target.Step, events func(string)) error {
 	timeout := defaultTimeout
 	if st.Timeout != "" {
@@ -125,25 +65,39 @@ func (in *Installation) Execute(ctx context.Context, st target.Step, events func
 		if err != nil {
 			return err
 		}
-		var names []string
-		for _, c := range cs {
-			names = append(names, c.Name)
-		}
-		return in.wait(ctx, names, st.Unit.RestartPolicy == "Never", timeout, events)
+		return in.wait(ctx, cs, st.Unit.RestartPolicy == "Never", timeout, events)
 	case "stop":
-		names, err := in.lines(ctx, append([]string{"ps", "--format", "{{.Names}}"}, in.filters(labelKey+"="+st.Key, labelPart+"=workload")...)...)
-		if err != nil || len(names) == 0 {
-			return err
+		for _, e := range in.engines {
+			names, err := e.lines(ctx, append([]string{"ps", "--format", "{{.Names}}"}, in.filters(labelKey+"="+st.Key, labelPart+"=workload")...)...)
+			if err != nil {
+				return err
+			}
+			if len(names) > 0 {
+				if _, err := e.docker(ctx, nil, nil, events, append([]string{"stop", "--time", stopGrace}, names...)...); err != nil {
+					return err
+				}
+			}
 		}
-		_, err = in.docker(ctx, nil, nil, events, append([]string{"stop", "--time", stopGrace}, names...)...)
-		return err
+		return nil
 	case "remove":
-		names, err := in.lines(ctx, append([]string{"ps", "-a", "--format", "{{.Names}}"}, in.filters(labelKey+"="+st.Key)...)...)
-		if err != nil || len(names) == 0 {
-			return err
+		// the key's containers and their files, which hold its secrets; the
+		// claims stay (--volumes removes only the anonymous ones of an
+		// image's VOLUME)
+		for _, e := range in.engines {
+			names, err := e.lines(ctx, append([]string{"ps", "-a", "--format", "{{.Names}}"}, in.filters(labelKey+"="+st.Key)...)...)
+			if err != nil {
+				return err
+			}
+			if len(names) > 0 {
+				if _, err := e.docker(ctx, nil, nil, events, append([]string{"rm", "--force", "--volumes"}, names...)...); err != nil {
+					return err
+				}
+			}
+			if err := in.prune(ctx, e, in.filters(labelKey+"="+st.Key, labelPart+"=files"), ""); err != nil {
+				return err
+			}
 		}
-		_, err = in.docker(ctx, nil, nil, events, append([]string{"rm", "--force"}, names...)...)
-		return err
+		return nil
 	case "hook":
 		return in.hook(ctx, st, timeout, events)
 	}
@@ -152,12 +106,10 @@ func (in *Installation) Execute(ctx context.Context, st target.Step, events func
 
 // apply brings the key's containers to what the unit says: a container whose
 // hash is the unit's stays (started, if it was stopped), any other is
-// recreated, and a replica beyond the unit's count is removed.
+// recreated, and one the unit no longer has — a replica beyond its count, an
+// instance moved to another host — is removed.
 func (in *Installation) apply(ctx context.Context, u render.Unit, creds []render.Credential, events func(string)) error {
 	if err := in.keep(ctx, creds); err != nil {
-		return err
-	}
-	if err := in.ensureNetwork(ctx); err != nil {
 		return err
 	}
 	cs, err := in.containers(u)
@@ -165,14 +117,15 @@ func (in *Installation) apply(ctx context.Context, u render.Unit, creds []render
 		return err
 	}
 	resolve := in.resolver(ctx, creds)
-	var want []string
+	want := map[*engine][]string{}
 	for _, c := range cs {
-		want = append(want, c.Name)
+		e := c.Engine
+		want[e] = append(want[e], c.Name)
 		m, err := in.materialize(c, resolve)
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.Name, err)
 		}
-		rows, err := in.lines(ctx, "ps", "-a", "--filter", "name=^/"+c.Name+"$", "--format", `{{.Label "`+labelHash+`"}} {{.State}}`)
+		rows, err := e.lines(ctx, "ps", "-a", "--filter", "name=^/"+c.Name+"$", "--format", `{{.Label "`+labelHash+`"}} {{.State}}`)
 		if err != nil {
 			return err
 		}
@@ -180,14 +133,13 @@ func (in *Installation) apply(ctx context.Context, u render.Unit, creds []render
 			hash, state, _ := strings.Cut(rows[0], " ")
 			if hash == m.hash {
 				if state != "running" && c.Restart != "no" {
-					_, err = in.docker(ctx, nil, nil, events, "start", c.Name)
-				}
-				if err != nil {
-					return err
+					if _, err := e.docker(ctx, nil, nil, events, "start", c.Name); err != nil {
+						return err
+					}
 				}
 				continue
 			}
-			if _, err := in.docker(ctx, nil, nil, nil, "rm", "--force", c.Name); err != nil {
+			if _, err := e.docker(ctx, nil, nil, nil, "rm", "--force", "--volumes", c.Name); err != nil {
 				return err
 			}
 		}
@@ -195,49 +147,101 @@ func (in *Installation) apply(ctx context.Context, u render.Unit, creds []render
 			return err
 		}
 	}
-	have, err := in.lines(ctx, append([]string{"ps", "-a", "--format", "{{.Names}}"}, in.filters(labelKey+"="+u.Key, labelPart+"=workload")...)...)
-	if err != nil {
-		return err
-	}
-	var extra []string
-	for _, n := range have {
-		if !slices.Contains(want, n) {
-			extra = append(extra, n)
+	for _, e := range in.engines {
+		have, err := e.lines(ctx, append([]string{"ps", "-a", "--format", "{{.Names}}"}, in.filters(labelKey+"="+u.Key, labelPart+"=workload")...)...)
+		if err != nil {
+			return err
+		}
+		for _, n := range have {
+			if slices.Contains(want[e], n) {
+				continue
+			}
+			if _, err := e.docker(ctx, nil, nil, events, "rm", "--force", "--volumes", n); err != nil {
+				return err
+			}
+			if err := in.prune(ctx, e, in.filters(labelContainer+"="+n, labelPart+"=files"), ""); err != nil {
+				return err
+			}
 		}
 	}
-	if len(extra) > 0 {
-		_, err = in.docker(ctx, nil, nil, events, append([]string{"rm", "--force"}, extra...)...)
-	}
-	return err
+	return nil
 }
 
-func (in *Installation) ensureNetwork(ctx context.Context) error {
-	if _, err := in.docker(ctx, nil, nil, nil, "network", "inspect", in.network); err == nil {
+func (in *Installation) ensureNetwork(ctx context.Context, e *engine) error {
+	if _, err := e.docker(ctx, nil, nil, nil, "network", "inspect", in.network); err == nil {
 		return nil
 	}
-	_, err := in.docker(ctx, nil, nil, nil, "network", "create", "--label", labelInstallation+"="+in.installation, in.network)
+	_, err := e.docker(ctx, nil, nil, nil, "network", "create", "--label", labelInstallation+"="+in.installation, in.network)
 	return err
 }
 
-// materialized is a container ready to create: docker create's arguments,
-// the variables its secret env takes from the CLI's environment, the files
-// copied in before it starts, and a hash of all of it.
+// materialized is a container ready to create on its engine: docker
+// create's arguments, the variables its secret env takes from the CLI's
+// environment, its files as a tar and the volume they are kept in, and a
+// hash of all of it.
 type materialized struct {
-	name, key string
-	volumes   []string
-	args      []string
-	env       []string
-	files     []byte // a tar
-	hash      string
+	c       container
+	volumes []string // claims
+	args    []string
+	env     []string
+	files   []byte
+	filesV  string
+	hash    string
 }
 
 func (in *Installation) materialize(c container, resolve func(string) (string, error)) (*materialized, error) {
-	m := &materialized{name: c.Name, key: c.Key}
+	m := &materialized{c: c}
+	sum := sha256.New()
+
+	// the files first: their volume is named by their content
+	var tb bytes.Buffer
+	tw := tar.NewWriter(&tb)
+	var mounts []string
+	put := func(p string, mode *fs.FileMode, data []byte) error {
+		perm := int64(0o644)
+		if mode != nil {
+			perm = int64(mode.Perm())
+		}
+		rel := strings.TrimPrefix(p, "/")
+		if err := tw.WriteHeader(&tar.Header{Name: rel, Mode: perm, Size: int64(len(data)),
+			Typeflag: tar.TypeReg, ModTime: time.Unix(0, 0)}); err != nil {
+			return err
+		}
+		_, err := tw.Write(data)
+		mounts = append(mounts, rel)
+		return err
+	}
+	for _, f := range c.Files {
+		s, err := substitute(string(f.Data), resolve)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f.Path, err)
+		}
+		if err := put(f.Path, f.Mode, []byte(s)); err != nil {
+			return nil, err
+		}
+	}
+	for _, f := range c.SecretFiles {
+		v, err := resolve(f.Ref.Name + "/" + f.Ref.Key)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f.Path, err)
+		}
+		if err := put(f.Path, f.Mode, []byte(v)); err != nil {
+			return nil, err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	if len(mounts) > 0 {
+		m.files = tb.Bytes()
+		fs := sha256.Sum256(m.files)
+		m.filesV = c.Name + "-files-" + hex.EncodeToString(fs[:6])
+	}
+
 	a := []string{"--name", c.Name, "--hostname", c.Name, "--network", in.network, "--restart", c.Restart}
 	for _, al := range c.Aliases {
 		a = append(a, "--network-alias", al)
 	}
-	sum := sha256.New()
 	for _, e := range c.Env {
 		if e.Secret == nil {
 			a = append(a, "--env", e.Name+"="+e.Value)
@@ -252,14 +256,15 @@ func (in *Installation) materialize(c container, resolve func(string) (string, e
 		m.env = append(m.env, e.Name+"="+v)
 		fmt.Fprintf(sum, "env %s=%s\n", e.Name, v)
 	}
-	for _, p := range c.Ports {
-		if host, ok := c.Publish[p.Name]; ok {
-			a = append(a, "--publish", fmt.Sprintf("%d:%d", host, p.Port))
-		}
+	for _, p := range publishes(c) {
+		a = append(a, "--publish", p.(string))
 	}
 	for _, v := range c.Volumes {
 		a = append(a, "--mount", "type=volume,source="+v.Source+",target="+v.Target)
 		m.volumes = append(m.volumes, v.Source)
+	}
+	for _, rel := range mounts {
+		a = append(a, "--mount", "type=volume,source="+m.filesV+",target=/"+rel+",volume-subpath="+rel+",readonly")
 	}
 	for _, l := range c.Libraries {
 		a = append(a, "--mount", "type=image,source="+l.Source+",target="+l.Target)
@@ -295,47 +300,6 @@ func (in *Installation) materialize(c container, resolve func(string) (string, e
 		tail = append(tail, c.Entrypoint[1:]...)
 	}
 	tail = append(tail, c.Cmd...)
-
-	var tb bytes.Buffer
-	tw := tar.NewWriter(&tb)
-	put := func(p string, mode *os.FileMode, data []byte) error {
-		perm := int64(0o644)
-		if mode != nil {
-			perm = int64(mode.Perm())
-		}
-		fmt.Fprintf(sum, "file %s %o %d\n", p, perm, len(data))
-		sum.Write(data)
-		if err := tw.WriteHeader(&tar.Header{Name: strings.TrimPrefix(p, "/"), Mode: perm, Size: int64(len(data)),
-			Typeflag: tar.TypeReg, ModTime: time.Unix(0, 0)}); err != nil {
-			return err
-		}
-		_, err := tw.Write(data)
-		return err
-	}
-	for _, f := range c.Files {
-		s, err := substitute(string(f.Data), resolve)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", f.Path, err)
-		}
-		if err := put(f.Path, f.Mode, []byte(s)); err != nil {
-			return nil, err
-		}
-	}
-	for _, f := range c.SecretFiles {
-		v, err := resolve(f.Ref.Name + "/" + f.Ref.Key)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", f.Path, err)
-		}
-		if err := put(f.Path, f.Mode, []byte(v)); err != nil {
-			return nil, err
-		}
-	}
-	if err := tw.Close(); err != nil {
-		return nil, err
-	}
-	if len(c.Files)+len(c.SecretFiles) > 0 {
-		m.files = tb.Bytes()
-	}
 	for _, s := range append(slices.Clone(a), tail...) {
 		fmt.Fprintf(sum, "arg %s\n", s)
 	}
@@ -344,27 +308,60 @@ func (in *Installation) materialize(c container, resolve func(string) (string, e
 	return m, nil
 }
 
-// run creates the container — its claims first, volumes of the
-// installation that outlive it — copies its files in over the image, starts
-// it.
+// run creates the container on its engine and starts it: its network, its
+// claims — volumes that outlive it — and its files volume first, the files
+// copied into that volume through a container of the same image that is
+// never started; the files volumes it had before are removed.
 func (in *Installation) run(ctx context.Context, m *materialized, events func(string)) error {
-	for _, v := range m.volumes {
-		if _, err := in.docker(ctx, nil, nil, nil, "volume", "create", "--label", labelInstallation+"="+in.installation,
-			"--label", labelKey+"="+m.key, "--label", labelPart+"=data", v); err != nil {
-			return err
-		}
-	}
-	if _, err := in.docker(ctx, nil, m.env, nil, append([]string{"create", "--quiet"}, m.args...)...); err != nil {
+	c, e := m.c, m.c.Engine
+	if err := in.ensureNetwork(ctx, e); err != nil {
 		return err
 	}
-	if m.files != nil {
-		if _, err := in.docker(ctx, bytes.NewReader(m.files), nil, nil, "cp", "-", m.name+":/"); err != nil {
+	for _, v := range m.volumes {
+		if _, err := e.docker(ctx, nil, nil, nil, "volume", "create", "--label", labelInstallation+"="+in.installation,
+			"--label", labelKey+"="+c.Key, "--label", labelPart+"=data", v); err != nil {
 			return err
 		}
 	}
-	_, err := in.docker(ctx, nil, nil, nil, "start", m.name)
-	if err == nil && events != nil {
-		events("started " + m.name)
+	if m.files != nil {
+		if _, err := e.docker(ctx, nil, nil, nil, "volume", "create", "--label", labelInstallation+"="+in.installation,
+			"--label", labelKey+"="+c.Key, "--label", labelPart+"=files", "--label", labelContainer+"="+c.Name, m.filesV); err != nil {
+			return err
+		}
+		helper := c.Name + "-files"
+		_, _ = e.docker(ctx, nil, nil, nil, "rm", "--force", "--volumes", helper)
+		if _, err := e.docker(ctx, nil, nil, nil, "create", "--quiet", "--name", helper, "--entrypoint", "/pack-files",
+			"--label", labelInstallation+"="+in.installation, "--label", labelKey+"="+c.Key, "--label", labelPart+"=files",
+			"--mount", "type=volume,source="+m.filesV+",target=/pack-files", c.Image); err != nil {
+			return err
+		}
+		_, err := e.docker(ctx, bytes.NewReader(m.files), nil, nil, "cp", "-", helper+":/pack-files")
+		_, _ = e.docker(ctx, nil, nil, nil, "rm", "--force", "--volumes", helper)
+		if err != nil {
+			return err
+		}
+	}
+	if _, err := e.docker(ctx, nil, m.env, nil, append([]string{"create", "--quiet"}, m.args...)...); err != nil {
+		return err
+	}
+	if _, err := e.docker(ctx, nil, nil, nil, "start", c.Name); err != nil {
+		return err
+	}
+	if events != nil {
+		events(e.prefix() + "started " + c.Name)
+	}
+	return in.prune(ctx, e, in.filters(labelContainer+"="+c.Name, labelPart+"=files"), m.filesV)
+}
+
+// prune removes the volumes the filters select, but keep.
+func (in *Installation) prune(ctx context.Context, e *engine, filters []string, keep string) error {
+	vols, err := e.lines(ctx, append([]string{"volume", "ls", "-q"}, filters...)...)
+	if err != nil {
+		return err
+	}
+	vols = slices.DeleteFunc(vols, func(v string) bool { return v == keep })
+	if len(vols) > 0 {
+		_, err = e.docker(ctx, nil, nil, nil, append([]string{"volume", "rm", "--force"}, vols...)...)
 	}
 	return err
 }
@@ -372,75 +369,77 @@ func (in *Installation) run(ctx context.Context, m *materialized, events func(st
 // wait waits until every container runs and, with a healthcheck, is healthy;
 // one that runs to completion until it exits 0. Then, or when it gives up,
 // it tells the containers' logs.
-func (in *Installation) wait(ctx context.Context, names []string, completes bool, timeout time.Duration, events func(string)) error {
+func (in *Installation) wait(ctx context.Context, cs []container, completes bool, timeout time.Duration, events func(string)) error {
 	deadline := time.Now().Add(timeout)
 	var verdict error
 	for {
-		rows, err := in.lines(ctx, append([]string{"inspect", "--format",
-			`{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}} {{.State.ExitCode}}`}, names...)...)
-		if err == nil && len(rows) == len(names) {
-			ready, failed := 0, ""
-			for i, r := range rows {
-				f := strings.Fields(r)
-				status, health, code := f[0], f[1], f[2]
-				switch {
-				case completes && status == "exited" && code == "0":
-					ready++
-				case completes && (status == "exited" || status == "dead"):
-					failed = fmt.Sprintf("%s exited %s", names[i], code)
-				case !completes && status == "running" && (health == "-" || health == "healthy"):
-					ready++
-				}
+		ready, failed := 0, ""
+		for _, c := range cs {
+			out, err := c.Engine.docker(ctx, nil, nil, nil, "inspect", "--format",
+				`{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}} {{.State.ExitCode}}`, c.Name)
+			f := strings.Fields(string(out))
+			if err != nil || len(f) != 3 {
+				continue
 			}
-			if failed != "" {
-				verdict = fmt.Errorf("%s", failed)
-				break
-			}
-			if ready == len(names) {
-				break
+			status, health, code := f[0], f[1], f[2]
+			switch {
+			case completes && status == "exited" && code == "0":
+				ready++
+			case completes && (status == "exited" || status == "dead"):
+				failed = fmt.Sprintf("%s%s exited %s", c.Engine.prefix(), c.Name, code)
+			case !completes && status == "running" && (health == "-" || health == "healthy"):
+				ready++
 			}
 		}
+		if failed != "" {
+			verdict = fmt.Errorf("%s", failed)
+			break
+		}
+		if ready == len(cs) {
+			break
+		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
+			var names []string
+			for _, c := range cs {
+				names = append(names, c.Name)
+			}
 			verdict = fmt.Errorf("%s not ready within %s", strings.Join(names, ", "), timeout)
 			break
 		}
 		time.Sleep(2 * time.Second)
 	}
 	if verdict != nil || completes {
-		in.logs(names, events)
+		in.logs(cs, events)
 	}
 	return verdict
 }
 
 // logs tells the tail of each container's log, on a context of its own: a
 // step that ran out of time still says what its containers did.
-func (in *Installation) logs(names []string, events func(string)) {
+func (in *Installation) logs(cs []container, events func(string)) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	for _, n := range names {
+	for _, c := range cs {
 		var b bytes.Buffer
-		cmd := in.command(ctx, "logs", "--tail", "50", n)
+		cmd := c.Engine.command(ctx, "logs", "--tail", "50", c.Name)
 		cmd.Stdout, cmd.Stderr = &b, &b
 		_ = cmd.Run()
 		for l := range strings.SplitSeq(strings.TrimSpace(b.String()), "\n") {
 			if l != "" {
-				events(n + ": " + l)
+				events(c.Engine.prefix() + c.Name + ": " + l)
 			}
 		}
 	}
 }
 
-// hook runs a hook as a container of its own: replica 0 of the key — its
-// files, env and libraries — with the hook's image and command; an exclusive
-// hook gets replica 0's volumes.
+// hook runs a hook as a container of its own on replica 0's host: replica 0
+// of the key — its files, env and libraries — with the hook's image and
+// command; an exclusive hook gets replica 0's volumes.
 func (in *Installation) hook(ctx context.Context, st target.Step, timeout time.Duration, events func(string)) error {
 	if st.Unit == nil {
 		return fmt.Errorf("hook %s: no unit", st.Name)
 	}
 	if err := in.keep(ctx, st.Credentials); err != nil {
-		return err
-	}
-	if err := in.ensureNetwork(ctx); err != nil {
 		return err
 	}
 	c, err := in.container(*st.Unit, 0)
@@ -461,15 +460,16 @@ func (in *Installation) hook(ctx context.Context, st target.Step, timeout time.D
 	if err != nil {
 		return err
 	}
-	_, _ = in.docker(ctx, nil, nil, nil, "rm", "--force", c.Name)
+	e := c.Engine
+	_, _ = e.docker(ctx, nil, nil, nil, "rm", "--force", "--volumes", c.Name)
 	if err := in.run(ctx, m, nil); err != nil {
 		return err
 	}
-	if err := in.wait(ctx, []string{c.Name}, true, timeout, events); err != nil {
+	if err := in.wait(ctx, []container{c}, true, timeout, events); err != nil {
 		return fmt.Errorf("hook %s: %w", st.Name, err)
 	}
-	_, _ = in.docker(ctx, nil, nil, nil, "rm", "--force", c.Name)
-	return nil
+	_, _ = e.docker(ctx, nil, nil, nil, "rm", "--force", "--volumes", c.Name)
+	return in.prune(ctx, e, in.filters(labelContainer+"="+c.Name, labelPart+"=files"), "")
 }
 
 // keep stores the step's credentials in the installation's state.

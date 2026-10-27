@@ -53,11 +53,11 @@ func newRollbackCmd() *cobra.Command {
 
 		if rec.Unfinished() {
 			sg := rec.Saga
-			fromB, fromRel, err := recorded(rec.Pack, rec.Values, ctx, *plainHTTP)
+			fromB, fromRel, err := recorded(rec.Pack, rec.Values, rec.Platform, ctx, *plainHTTP)
 			if err != nil {
 				return fmt.Errorf("the installed version %s: %w", rec.Pack, err)
 			}
-			toB, toRel, err := recorded(sg.Pack, sg.Values, ctx, *plainHTTP)
+			toB, toRel, err := recorded(sg.Pack, sg.Values, sg.Platform, ctx, *plainHTTP)
 			if err != nil {
 				return fmt.Errorf("the saga's version %s: %w", sg.Pack, err)
 			}
@@ -86,11 +86,11 @@ func newRollbackCmd() *cobra.Command {
 		if prev == nil {
 			return fmt.Errorf("%s: no previous version is recorded — nothing to roll back to", *name)
 		}
-		curB, curRel, err := recorded(rec.Pack, rec.Values, ctx, *plainHTTP)
+		curB, curRel, err := recorded(rec.Pack, rec.Values, rec.Platform, ctx, *plainHTTP)
 		if err != nil {
 			return fmt.Errorf("the installed version %s: %w", rec.Pack, err)
 		}
-		prevB, prevRel, err := recorded(prev.Pack, prev.Values, ctx, *plainHTTP)
+		prevB, prevRel, err := recorded(prev.Pack, prev.Values, prev.Platform, ctx, *plainHTTP)
 		if err != nil {
 			return fmt.Errorf("the previous version %s: %w", prev.Pack, err)
 		}
@@ -102,7 +102,8 @@ func newRollbackCmd() *cobra.Command {
 		if *dryRun {
 			return nil
 		}
-		rec.Saga = &saga.Progress{Pack: prev.Pack, Version: prev.Version, Values: prev.Values, Given: prev.Values, Started: time.Now().UTC()}
+		rec.Saga = &saga.Progress{Pack: prev.Pack, Version: prev.Version, Values: prev.Values, Given: prev.Values,
+			Platform: prev.Platform, Started: time.Now().UTC()}
 		run := &saga.Run{Plan: p, From: curRel, To: prevRel, Exec: x, Record: rec, Events: events}
 		if err := run.Execute(sctx); err != nil {
 			return err
@@ -114,8 +115,9 @@ func newRollbackCmd() *cobra.Command {
 }
 
 // recorded opens a version the record names and renders it with its
-// recorded values; an empty reference is no version — nil, nil.
-func recorded(ref string, v render.Values, ctx render.Context, plainHTTP bool) (*bundle.Bundle, *render.Release, error) {
+// recorded values and the target's halves of its platforms; an empty
+// reference is no version — nil, nil.
+func recorded(ref string, v render.Values, platform map[string]map[string]any, ctx render.Context, plainHTTP bool) (*bundle.Bundle, *render.Release, error) {
 	if len(ref) == 0 {
 		return nil, nil, nil
 	}
@@ -123,6 +125,7 @@ func recorded(ref string, v render.Values, ctx render.Context, plainHTTP bool) (
 	if err != nil {
 		return nil, nil, err
 	}
+	ctx.Installed = platform
 	rel, err := render.Render(b, v, ctx)
 	if err != nil {
 		return nil, nil, err

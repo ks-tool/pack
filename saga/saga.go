@@ -35,6 +35,10 @@ type Record struct {
 	// and Saga says what was rolled back.
 	State string    `json:"state"`
 	Saga  *Progress `json:"saga,omitempty"`
+	// Platform is the target's half of each key's platform as the target
+	// resolved it for the installed version: rendered again, the version is
+	// what was installed, whatever the environment says now.
+	Platform map[string]map[string]any `json:"platform,omitempty"`
 	// Previous is what the last finished saga replaced: where pack rollback
 	// goes when no saga is unfinished.
 	Previous *Installation `json:"previous,omitempty"`
@@ -42,9 +46,10 @@ type Record struct {
 
 // Installation is one version as it was installed.
 type Installation struct {
-	Pack    string        `json:"pack"`
-	Version string        `json:"version,omitempty"`
-	Values  render.Values `json:"values"`
+	Pack     string                    `json:"pack"`
+	Version  string                    `json:"version,omitempty"`
+	Values   render.Values             `json:"values"`
+	Platform map[string]map[string]any `json:"platform,omitempty"`
 }
 
 const (
@@ -61,8 +66,10 @@ type Progress struct {
 	// Given is the values document as the operator gave it — before the
 	// tool wrote references to the credentials it provisioned: what the same
 	// command gives again when it continues the saga.
-	Given  render.Values `json:"given"`
-	Policy plan.Policy   `json:"policy"`
+	Given render.Values `json:"given"`
+	// Platform is the target's half of each key's platform the saga goes to.
+	Platform map[string]map[string]any `json:"platform,omitempty"`
+	Policy   plan.Policy               `json:"policy"`
 	// Done are the steps that are in effect: performed and not undone.
 	Done       []int     `json:"done,omitempty"`
 	Failed     int       `json:"failed,omitempty"`
@@ -166,15 +173,16 @@ func (r *Run) Execute(ctx context.Context) error {
 		return fmt.Errorf("step %d (%s %s) failed: %v; rolled back: %s", s.N, s.Kind, s.Key, err, rolledBack(r.Record.Saga.RolledBack))
 	}
 	sg := r.Record.Saga
-	if len(r.Record.Pack) > 0 && (r.Record.Pack != sg.Pack || r.Record.Version != sg.Version || !sameValues(r.Record.Values, sg.Values)) {
-		r.Record.Previous = &Installation{Pack: r.Record.Pack, Version: r.Record.Version, Values: r.Record.Values}
+	if len(r.Record.Pack) > 0 && (r.Record.Pack != sg.Pack || r.Record.Version != sg.Version ||
+		!sameValues(r.Record.Values, sg.Values) || !sameValues(r.Record.Platform, r.To.Platforms)) {
+		r.Record.Previous = &Installation{Pack: r.Record.Pack, Version: r.Record.Version, Values: r.Record.Values, Platform: r.Record.Platform}
 	}
-	r.Record.Pack, r.Record.Version, r.Record.Values = sg.Pack, sg.Version, sg.Values
+	r.Record.Pack, r.Record.Version, r.Record.Values, r.Record.Platform = sg.Pack, sg.Version, sg.Values, r.To.Platforms
 	r.Record.State, r.Record.Saga = Installed, nil
 	return Write(r.Exec, r.Record)
 }
 
-func sameValues(a, b render.Values) bool {
+func sameValues(a, b any) bool {
 	ra, err1 := json.Marshal(a)
 	rb, err2 := json.Marshal(b)
 	return err1 == nil && err2 == nil && string(ra) == string(rb)

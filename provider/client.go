@@ -363,12 +363,12 @@ type remote struct {
 func (r *remote) Namespace() string      { return r.namespace }
 func (r *remote) PlatformSchema() []byte { return r.schema }
 
-func (r *remote) Resolve(key, scale string, platform map[string]any) (*render.Resolved, error) {
+func (r *remote) Resolve(key, scale string, platform map[string]any, installed bool) (*render.Resolved, error) {
 	raw, err := encode(platform)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := r.p.client.Resolve(context.Background(), &providerpb.ResolveRequest{Key: key, Scale: scale, PlatformJson: raw})
+	resp, err := r.p.client.Resolve(context.Background(), &providerpb.ResolveRequest{Key: key, Scale: scale, PlatformJson: raw, Installed: installed})
 	if err != nil {
 		return nil, unwrap(err)
 	}

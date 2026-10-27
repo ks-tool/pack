@@ -3,9 +3,15 @@
   "$id": "urn:pack:platform:docker",
   "type": "object",
   "properties": {
-    "replicas": {"type": "integer", "minimum": 0, "default": 1},
+    "replicas": {"type": "integer", "minimum": 0},
+    "hosts": {
+      "description": "The hosts of the environment the key runs on, instance i on the i-th.",
+      "type": "array",
+      "items": {"type": "string"},
+      "uniqueItems": true
+    },
     "publish": {
-      "description": "Host ports by port name: the port the engine's host listens on for the container's.",
+      "description": "Host ports by port name, on one engine: the port the engine's host listens on for the container's.",
       "type": "object",
       "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 65535}
     }

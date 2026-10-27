@@ -156,7 +156,7 @@ func (s *server) Resolve(_ context.Context, req *providerpb.ResolveRequest) (*pr
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	res, err := inst.Resolve(req.Key, req.Scale, platform)
+	res, err := inst.Resolve(req.Key, req.Scale, platform, req.Installed)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}

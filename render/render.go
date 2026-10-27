@@ -20,6 +20,11 @@ import (
 type Context struct {
 	Installation string
 	Target       Target
+	// Installed are the target's halves of the keys' platforms as the target
+	// resolved them for the installed version (Release.Platforms, kept in the
+	// record): rendering that version again, a key in it is resolved as it
+	// was, whatever the environment says now.
+	Installed map[string]map[string]any
 }
 
 // Target is what the render asks of the system it renders for. A key's
@@ -36,8 +41,11 @@ type Target interface {
 	Namespace() string
 	// Resolve says what a selected key's platform means on the target. scale
 	// is the component's x-pack.scale; a key that is not replicas has no
-	// instances of its own and is addressed as one service.
-	Resolve(key, scale string, platform map[string]any) (*Resolved, error)
+	// instances of its own and is addressed as one service. installed: the
+	// platform's target half is what Resolve returned when the installed
+	// version was installed — it is resolved as it says, the environment and
+	// the target's defaults not consulted.
+	Resolve(key, scale string, platform map[string]any, installed bool) (*Resolved, error)
 	// ValidatePlatform checks a key's platform in the target's own terms,
 	// one "pointer: message" per problem.
 	ValidatePlatform(key string, platform map[string]any) []string
@@ -566,7 +574,15 @@ func (r *render) resolve() error {
 		keyDoc, _ := get(r.doc, "/"+key)
 		km, _ := keyDoc.(map[string]any)
 		pl, _ := km["platform"].(map[string]any)
-		res, err := r.ctx.Target.Resolve(key, r.b.Components[r.b.KeyComponent[key]].Root.Scale, pl)
+		was, installed := r.ctx.Installed[key]
+		if installed {
+			// the document's pack half, the target's half as it was
+			p := map[string]any{}
+			maps.Copy(p, pl)
+			maps.Copy(p, was)
+			pl = p
+		}
+		res, err := r.ctx.Target.Resolve(key, r.b.Components[r.b.KeyComponent[key]].Root.Scale, pl, installed)
 		if err != nil {
 			return fmt.Errorf("%s: %w", key, err)
 		}

@@ -73,7 +73,11 @@ its last savepoint (--from-start: from its first step). The target must perform 
 			if fromB, err = openPack(rec.Pack, *plainHTTP); err != nil {
 				return fmt.Errorf("the installed version %s: %w", rec.Pack, err)
 			}
-			if fromRel, err = render.Render(fromB, rec.Values, ctx); err != nil {
+			// as it was installed: the target's half of each key's platform
+			// the record kept, not what the environment says now
+			fctx := ctx
+			fctx.Installed = rec.Platform
+			if fromRel, err = render.Render(fromB, rec.Values, fctx); err != nil {
 				return fmt.Errorf("the installed version %s: %w", rec.Pack, err)
 			}
 		}
@@ -138,7 +142,8 @@ its last savepoint (--from-start: from its first step). The target must perform 
 		if resume {
 			fmt.Printf("continuing the saga towards %s from its last savepoint\n", rec.Saga.Pack)
 		} else {
-			rec.Saga = &saga.Progress{Pack: recordRef(*packRef), Version: toB.Version, Values: v, Given: given, Policy: policy, Started: time.Now().UTC()}
+			rec.Saga = &saga.Progress{Pack: recordRef(*packRef), Version: toB.Version, Values: v, Given: given,
+				Platform: toRel.Platforms, Policy: policy, Started: time.Now().UTC()}
 		}
 		sctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()

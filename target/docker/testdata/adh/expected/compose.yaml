@@ -1,100 +1,3 @@
-configs:
-  hive-db-0-postgresql.conf:
-    content: |
-      listen_addresses=*
-      max_connections=100
-      port=5432
-      shared_buffers=1024MB
-  kafka-0-0-kafka_jaas.conf:
-    content: |
-      KafkaServer {
-        org.apache.kafka.common.security.scram.ScramLoginModule required
-        username="kafka"
-        password="${PACK_SECRET_PROD_KAFKA_SASL_PASSWORD}";
-      };
-  kafka-0-1-server.properties:
-    content: |
-      broker.id.generation.enable=true
-      listeners=PLAINTEXT://:9092,INTERNAL://:9093
-      log.dirs=/var/lib/kafka/data
-      min.insync.replicas=2
-      num.partitions=3
-      zookeeper.connect=prod-zookeeper-0:2181,prod-zookeeper-1:2181,prod-zookeeper-2:2181/prod
-  kafka-1-0-kafka_jaas.conf:
-    content: |
-      KafkaServer {
-        org.apache.kafka.common.security.scram.ScramLoginModule required
-        username="kafka"
-        password="${PACK_SECRET_PROD_KAFKA_SASL_PASSWORD}";
-      };
-  kafka-1-1-server.properties:
-    content: |
-      broker.id.generation.enable=true
-      listeners=PLAINTEXT://:9092,INTERNAL://:9093
-      log.dirs=/var/lib/kafka/data
-      min.insync.replicas=2
-      num.partitions=3
-      zookeeper.connect=prod-zookeeper-0:2181,prod-zookeeper-1:2181,prod-zookeeper-2:2181/prod
-  kafka-2-0-kafka_jaas.conf:
-    content: |
-      KafkaServer {
-        org.apache.kafka.common.security.scram.ScramLoginModule required
-        username="kafka"
-        password="${PACK_SECRET_PROD_KAFKA_SASL_PASSWORD}";
-      };
-  kafka-2-1-server.properties:
-    content: |
-      broker.id.generation.enable=true
-      listeners=PLAINTEXT://:9092,INTERNAL://:9093
-      log.dirs=/var/lib/kafka/data
-      min.insync.replicas=2
-      num.partitions=3
-      zookeeper.connect=prod-zookeeper-0:2181,prod-zookeeper-1:2181,prod-zookeeper-2:2181/prod
-  ranger-db-0-postgresql.conf:
-    content: |
-      listen_addresses=*
-      max_connections=100
-      port=5432
-      shared_buffers=128MB
-  zookeeper-0-0-zoo.cfg:
-    content: |
-      clientPort=2181
-      dataDir=/var/lib/zookeeper
-      initLimit=10
-      server.1=prod-zookeeper-0:2888:3888
-      server.2=prod-zookeeper-1:2888:3888
-      server.3=prod-zookeeper-2:2888:3888
-      syncLimit=5
-      tickTime=2000
-  zookeeper-0-1-myid:
-    content: |
-      1
-  zookeeper-1-0-zoo.cfg:
-    content: |
-      clientPort=2181
-      dataDir=/var/lib/zookeeper
-      initLimit=10
-      server.1=prod-zookeeper-0:2888:3888
-      server.2=prod-zookeeper-1:2888:3888
-      server.3=prod-zookeeper-2:2888:3888
-      syncLimit=5
-      tickTime=2000
-  zookeeper-1-1-myid:
-    content: |
-      2
-  zookeeper-2-0-zoo.cfg:
-    content: |
-      clientPort=2181
-      dataDir=/var/lib/zookeeper
-      initLimit=10
-      server.1=prod-zookeeper-0:2888:3888
-      server.2=prod-zookeeper-1:2888:3888
-      server.3=prod-zookeeper-2:2888:3888
-      syncLimit=5
-      tickTime=2000
-  zookeeper-2-1-myid:
-    content: |
-      3
 name: prod
 networks:
   default:
@@ -104,9 +7,6 @@ secrets:
     environment: PACK_SECRET_PROD_KAFKA_TLS_KEYSTORE_JKS
 services:
   hive-db:
-    configs:
-    - source: hive-db-0-postgresql.conf
-      target: /etc/postgresql/postgresql.conf
     container_name: prod-hive-db
     cpu_shares: 2048
     environment:
@@ -133,16 +33,14 @@ services:
     - source: data-prod-hive-db
       target: /var/lib/postgresql/data
       type: volume
+    - read_only: true
+      source: ./files/prod-hive-db/etc/postgresql/postgresql.conf
+      target: /etc/postgresql/postgresql.conf
+      type: bind
   kafka-0:
     command:
     - --override
     - min.insync.replicas=2
-    configs:
-    - mode: "0400"
-      source: kafka-0-0-kafka_jaas.conf
-      target: /opt/kafka/config/kafka_jaas.conf
-    - source: kafka-0-1-server.properties
-      target: /opt/kafka/config/server.properties
     container_name: prod-kafka-0
     cpu_shares: 8192
     environment:
@@ -169,8 +67,7 @@ services:
         - prod-kafka
     restart: unless-stopped
     secrets:
-    - mode: "0400"
-      source: pack_secret_prod_kafka_tls_keystore_jks
+    - source: pack_secret_prod_kafka_tls_keystore_jks
       target: /opt/kafka/config/keystore.jks
     volumes:
     - source: data-prod-kafka-0
@@ -180,16 +77,18 @@ services:
       source: images/jdk:21.0.4
       target: /opt/java
       type: image
+    - read_only: true
+      source: ./files/prod-kafka-0/opt/kafka/config/kafka_jaas.conf
+      target: /opt/kafka/config/kafka_jaas.conf
+      type: bind
+    - read_only: true
+      source: ./files/prod-kafka-0/opt/kafka/config/server.properties
+      target: /opt/kafka/config/server.properties
+      type: bind
   kafka-1:
     command:
     - --override
     - min.insync.replicas=2
-    configs:
-    - mode: "0400"
-      source: kafka-1-0-kafka_jaas.conf
-      target: /opt/kafka/config/kafka_jaas.conf
-    - source: kafka-1-1-server.properties
-      target: /opt/kafka/config/server.properties
     container_name: prod-kafka-1
     cpu_shares: 8192
     environment:
@@ -216,8 +115,7 @@ services:
         - prod-kafka
     restart: unless-stopped
     secrets:
-    - mode: "0400"
-      source: pack_secret_prod_kafka_tls_keystore_jks
+    - source: pack_secret_prod_kafka_tls_keystore_jks
       target: /opt/kafka/config/keystore.jks
     volumes:
     - source: data-prod-kafka-1
@@ -227,16 +125,18 @@ services:
       source: images/jdk:21.0.4
       target: /opt/java
       type: image
+    - read_only: true
+      source: ./files/prod-kafka-1/opt/kafka/config/kafka_jaas.conf
+      target: /opt/kafka/config/kafka_jaas.conf
+      type: bind
+    - read_only: true
+      source: ./files/prod-kafka-1/opt/kafka/config/server.properties
+      target: /opt/kafka/config/server.properties
+      type: bind
   kafka-2:
     command:
     - --override
     - min.insync.replicas=2
-    configs:
-    - mode: "0400"
-      source: kafka-2-0-kafka_jaas.conf
-      target: /opt/kafka/config/kafka_jaas.conf
-    - source: kafka-2-1-server.properties
-      target: /opt/kafka/config/server.properties
     container_name: prod-kafka-2
     cpu_shares: 8192
     environment:
@@ -263,8 +163,7 @@ services:
         - prod-kafka
     restart: unless-stopped
     secrets:
-    - mode: "0400"
-      source: pack_secret_prod_kafka_tls_keystore_jks
+    - source: pack_secret_prod_kafka_tls_keystore_jks
       target: /opt/kafka/config/keystore.jks
     volumes:
     - source: data-prod-kafka-2
@@ -274,10 +173,15 @@ services:
       source: images/jdk:21.0.4
       target: /opt/java
       type: image
+    - read_only: true
+      source: ./files/prod-kafka-2/opt/kafka/config/kafka_jaas.conf
+      target: /opt/kafka/config/kafka_jaas.conf
+      type: bind
+    - read_only: true
+      source: ./files/prod-kafka-2/opt/kafka/config/server.properties
+      target: /opt/kafka/config/server.properties
+      type: bind
   ranger-db:
-    configs:
-    - source: ranger-db-0-postgresql.conf
-      target: /etc/postgresql/postgresql.conf
     container_name: prod-ranger-db
     cpu_shares: 512
     environment:
@@ -304,12 +208,11 @@ services:
     - source: data-prod-ranger-db
       target: /var/lib/postgresql/data
       type: volume
+    - read_only: true
+      source: ./files/prod-ranger-db/etc/postgresql/postgresql.conf
+      target: /etc/postgresql/postgresql.conf
+      type: bind
   zookeeper-0:
-    configs:
-    - source: zookeeper-0-0-zoo.cfg
-      target: /conf/zoo.cfg
-    - source: zookeeper-0-1-myid
-      target: /var/lib/zookeeper/myid
     container_name: prod-zookeeper-0
     cpu_shares: 512
     environment:
@@ -343,12 +246,15 @@ services:
       source: images/jdk:21.0.4
       target: /opt/java
       type: image
-  zookeeper-1:
-    configs:
-    - source: zookeeper-1-0-zoo.cfg
+    - read_only: true
+      source: ./files/prod-zookeeper-0/conf/zoo.cfg
       target: /conf/zoo.cfg
-    - source: zookeeper-1-1-myid
+      type: bind
+    - read_only: true
+      source: ./files/prod-zookeeper-0/var/lib/zookeeper/myid
       target: /var/lib/zookeeper/myid
+      type: bind
+  zookeeper-1:
     container_name: prod-zookeeper-1
     cpu_shares: 512
     environment:
@@ -382,12 +288,15 @@ services:
       source: images/jdk:21.0.4
       target: /opt/java
       type: image
-  zookeeper-2:
-    configs:
-    - source: zookeeper-2-0-zoo.cfg
+    - read_only: true
+      source: ./files/prod-zookeeper-1/conf/zoo.cfg
       target: /conf/zoo.cfg
-    - source: zookeeper-2-1-myid
+      type: bind
+    - read_only: true
+      source: ./files/prod-zookeeper-1/var/lib/zookeeper/myid
       target: /var/lib/zookeeper/myid
+      type: bind
+  zookeeper-2:
     container_name: prod-zookeeper-2
     cpu_shares: 512
     environment:
@@ -421,6 +330,14 @@ services:
       source: images/jdk:21.0.4
       target: /opt/java
       type: image
+    - read_only: true
+      source: ./files/prod-zookeeper-2/conf/zoo.cfg
+      target: /conf/zoo.cfg
+      type: bind
+    - read_only: true
+      source: ./files/prod-zookeeper-2/var/lib/zookeeper/myid
+      target: /var/lib/zookeeper/myid
+      type: bind
 volumes:
   data-prod-hive-db:
     name: data-prod-hive-db

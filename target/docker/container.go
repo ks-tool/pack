@@ -15,15 +15,16 @@ import (
 const (
 	labelInstallation = "pack.horchestra.io/installation"
 	labelKey          = "pack.horchestra.io/key"
-	labelPart         = "pack.horchestra.io/part" // workload | hook | record | secret
+	labelPart         = "pack.horchestra.io/part" // workload | hook | data | files | record | secret
 	labelInstance     = "pack.horchestra.io/instance"
 	labelHash         = "pack.horchestra.io/hash"
+	labelContainer    = "pack.horchestra.io/container"
 )
 
-// container is one container of a key as the engine runs it — the one model
-// both `pack template` (a compose service) and the steps (docker create)
-// are made from.
+// container is one container of a key as its engine runs it — the one model
+// both `pack template` and the steps (docker create) are made from.
 type container struct {
+	Engine   *engine
 	Name     string
 	Key      string
 	Instance int
@@ -34,17 +35,19 @@ type container struct {
 	Env             []render.EnvVar
 	Ports           []render.Port
 	Publish         map[string]int // port name → host port
-	Aliases         []string
-	Restart         string // unless-stopped | no
-	CPUs            string
-	CPUShares       int64
-	Memory          int64
-	MemReservation  int64
-	Health          []string // a shell command
-	Labels          map[string]string
-	Volumes         []mount // claims: volume → path
-	Libraries       []mount // image → path
-	// Files are the instance's config files, ${secret:…} unresolved.
+	// Aliases are its other names on the network: on one engine, the key's.
+	Aliases        []string
+	Restart        string // unless-stopped | no
+	CPUs           string
+	CPUShares      int64
+	Memory         int64
+	MemReservation int64
+	Health         []string // a shell command
+	Labels         map[string]string
+	Volumes        []mount // claims: volume → path
+	Libraries      []mount // image → path
+	// Files are the instance's config files, ${secret:…} unresolved, kept in
+	// the container's files volume on its host and mounted file by file.
 	Files       []file
 	SecretFiles []secretFile
 }
@@ -79,15 +82,28 @@ func (in *Installation) containers(u render.Unit) ([]container, error) {
 
 func (in *Installation) container(u render.Unit, i int) (container, error) {
 	svc := in.service(u.Key)
-	c := container{Name: svc, Key: u.Key, Instance: i, Part: "workload", Image: u.Image,
+	e, err := in.engineOf(u, i)
+	if err != nil {
+		return container{}, err
+	}
+	c := container{Engine: e, Name: svc, Key: u.Key, Instance: i, Part: "workload", Image: u.Image,
 		Entrypoint: u.Command, Cmd: u.Args, Env: u.Env, Ports: u.Ports, Restart: "unless-stopped"}
 	if u.Replicas > 0 {
-		c.Name, c.Aliases = fmt.Sprintf("%s-%d", svc, i), []string{svc}
+		c.Name = fmt.Sprintf("%s-%d", svc, i)
+		if !in.spread() {
+			c.Aliases = []string{svc}
+		}
 	}
 	if u.RestartPolicy == "Never" {
 		c.Restart = "no"
 	}
-	if pub, ok := u.Platform["publish"].(map[string]any); ok {
+	if in.spread() {
+		// a neighbour reaches the instance at <host address>:<port>
+		c.Publish = map[string]int{}
+		for _, p := range u.Ports {
+			c.Publish[p.Name] = p.Port
+		}
+	} else if pub, ok := u.Platform["publish"].(map[string]any); ok {
 		c.Publish = map[string]int{}
 		for name, v := range pub {
 			if !slices.ContainsFunc(u.Ports, func(p render.Port) bool { return p.Name == name }) {

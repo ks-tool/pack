@@ -66,9 +66,9 @@ func (names) PlatformSchema() []byte { return platformSchema }
 // <service>-<i>.<service>.<namespace>. horchestra's half of the key's
 // platform is what the values say, under what the environment says of the
 // key (platform_<key>_replicas, platform_<key>_placement_…), replicas 1 when
-// neither does.
-func (n names) Resolve(key, scale string, platform map[string]any) (*render.Resolved, error) {
-	own, err := n.platformOf(key, platform)
+// neither does; installed, what the record kept.
+func (n names) Resolve(key, scale string, platform map[string]any, installed bool) (*render.Resolved, error) {
+	own, err := n.platformOf(key, platform, installed)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (n names) Resolve(key, scale string, platform map[string]any) (*render.Reso
 
 // platformOf is horchestra's half of a key's platform: the values', the
 // environment's over them, and the default replicas.
-func (n names) platformOf(key string, platform map[string]any) (map[string]any, error) {
+func (n names) platformOf(key string, platform map[string]any, installed bool) (map[string]any, error) {
 	own := map[string]any{"replicas": int64(1)}
 	if r, ok := platform["replicas"]; ok {
 		own["replicas"] = r
@@ -97,6 +97,9 @@ func (n names) platformOf(key string, platform map[string]any) (map[string]any, 
 	}
 	prefix := "platform_" + strings.ToLower(key) + "_"
 	for k, v := range n.settings {
+		if installed {
+			break
+		}
 		rest, ok := strings.CutPrefix(k, prefix)
 		if !ok {
 			continue

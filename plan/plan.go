@@ -10,8 +10,10 @@
 package plan
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
@@ -331,7 +333,7 @@ func change(in Input, key string) (Change, error) {
 		c.Kind = "image"
 	case digestOf(fromComp.SchemaRaw) != digestOf(toComp.SchemaRaw):
 		c.Kind = "schema"
-	case in.FromOut != nil && !sameFiles(in.FromOut, in.ToOut, key):
+	case in.FromOut != nil && (!sameFiles(in.FromOut, in.ToOut, key) || !sameUnit(in.FromOut, in.ToOut, key)):
 		c.Kind = "config"
 	}
 	return c, nil
@@ -351,6 +353,23 @@ func sameFiles(a, b *render.Release, key string) bool {
 	af, as := files(a)
 	bf, bs := files(b)
 	return reflect.DeepEqual(af, bf) && reflect.DeepEqual(as, bs)
+}
+
+// sameUnit compares the rest of what a key runs as — its platform (replicas,
+// where it runs), env, resources, command — as JSON: a number read back from
+// a record and the same number from a values file are one value.
+func sameUnit(a, b *render.Release, key string) bool {
+	rest := func(rel *render.Release) []byte {
+		for _, u := range rel.Units {
+			if u.Key == key {
+				u.Files, u.SecretFiles = nil, nil
+				j, _ := json.Marshal(u)
+				return j
+			}
+		}
+		return nil
+	}
+	return bytes.Equal(rest(a), rest(b))
 }
 
 func digestOf(b []byte) string {

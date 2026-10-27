@@ -200,10 +200,17 @@ target without it renders (`pack template`) and refuses `apply`.
 
 1. **What is installed** comes from the target: `ReadInstalled` returns the
    record pack keeps there — where the installed version came from, its
-   version and values, and a saga under way or the last one that failed.
+   version and values, the target's half of each key's platform as the
+   target resolved it (`platform`: replicas, hosts, placement — what the
+   environment said then), and a saga under way or the last one that failed.
    pack has no state of its own.
-2. pack renders the installed version with its recorded values and the new
-   one with the operator's, and derives the plan — the same as `pack plan`.
+2. pack renders the installed version with its recorded values and
+   platforms — `Resolve` with `installed`, the environment not consulted, so
+   the installed version is what was installed — and the new one with the
+   operator's values and the environment as it is now, and derives the plan,
+   the same as `pack plan`. A key whose unit differs in anything — files,
+   platform, env, resources — is a change: moving it to other hosts, or
+   another replica count, is an apply.
 3. **Every step** goes to the provider as `Execute`: the step (stop, hook,
    apply, wait, remove), the key's unit in the new version and in the
    installed one, for a hook the image and command, the credentials
