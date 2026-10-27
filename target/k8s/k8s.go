@@ -31,6 +31,9 @@ func (Target) Name() string           { return "k8s" }
 func (Target) Capabilities() []string { return []string{target.CapExecute} }
 
 func (Target) Configure(installation string, settings target.Settings) (target.Installation, error) {
+	if err := settings.Check("k8s", []string{"namespace", "kubeconfig", "context", "kubectl"}, []string{"platform_"}); err != nil {
+		return nil, err
+	}
 	return &Installation{
 		installation: installation,
 		namespace:    settings.Get("namespace", "default"),

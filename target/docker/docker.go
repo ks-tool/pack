@@ -46,6 +46,10 @@ func (Target) Name() string           { return "docker" }
 func (Target) Capabilities() []string { return []string{target.CapExecute} }
 
 func (Target) Configure(installation string, settings target.Settings) (target.Installation, error) {
+	if err := settings.Check("docker", []string{"host", "context", "docker", "network", "state", "compose"},
+		[]string{"hosts_", "secrets_", "platform_"}); err != nil {
+		return nil, err
+	}
 	in := &Installation{
 		installation: installation,
 		network:      settings.Get("network", installation),

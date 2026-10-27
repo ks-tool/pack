@@ -14,6 +14,9 @@ type Target struct{}
 func (Target) Name() string { return "horchestra" }
 
 func (t Target) Configure(installation string, settings target.Settings) (target.Installation, error) {
+	if err := settings.Check("horchestra", []string{"namespace"}, []string{"platform_"}); err != nil {
+		return nil, err
+	}
 	ctx := Context{Installation: installation, Namespace: settings.Get("namespace", "default"), Settings: settings}
 	return bound{ctx.Target().(names), ctx}, nil
 }

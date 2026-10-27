@@ -116,3 +116,12 @@ func TestSubstitute(t *testing.T) {
 		t.Errorf("%q %v", got, err)
 	}
 }
+
+// A setting of another target, or a typo, is refused.
+func TestUnknownSetting(t *testing.T) {
+	for _, s := range []target.Settings{{"network": "x"}, {"namspace": "data"}, {"hosts_a_address": "a"}} {
+		if _, err := (Target{}).Configure("dev", s); err == nil {
+			t.Errorf("%v accepted", s)
+		}
+	}
+}

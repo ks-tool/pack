@@ -84,12 +84,16 @@ func TestRenderADH_Golden(t *testing.T) {
 	})
 }
 
-// As a target.Target: the namespace setting, a typo refused, and the files
-// the CLI writes — the same bytes as the golden set.
+// As a target.Target: the namespace setting, a setting of another target
+// refused, and the files the CLI writes — the same bytes as the golden set.
 func TestTarget(t *testing.T) {
-	// the environment's whole set: horchestra takes namespace, the rest is not its own
 	settings := adhEnvironment(t)
 	settings["kubeconfig"] = "x"
+	if _, err := (Target{}).Configure("prod", settings); err == nil || !strings.Contains(err.Error(), "no setting kubeconfig") {
+		t.Errorf("a setting horchestra has not is refused: %v", err)
+	}
+	delete(settings, "kubeconfig")
+	settings["provider"], settings["vault_addr"] = "pack-provider-horchestra", "https://vault.example" // pack's own
 	inst, err := Target{}.Configure("prod", settings)
 	if err != nil {
 		t.Fatal(err)

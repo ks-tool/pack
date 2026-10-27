@@ -74,6 +74,11 @@ func TestProvider_ADH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// a setting the target has not is refused across the wire
+	if _, err := p.Configure("prod", target.Settings(env.Settings)); err == nil || !strings.Contains(err.Error(), "no setting registry_user") {
+		t.Errorf("registry_user: %v", err)
+	}
+	delete(env.Settings, "registry_user")
 	inst, err := p.Configure("prod", target.Settings(env.Settings))
 	if err != nil {
 		t.Fatal(err)

@@ -7,7 +7,10 @@ package target
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
+	"slices"
+	"strings"
 
 	"github.com/ks-tool/pack/render"
 )
@@ -76,6 +79,34 @@ type Step struct {
 
 // Settings are the environment's set, key=value, keys in lower case.
 type Settings map[string]string
+
+// Own are the keys of the set that are pack's own, not a target's: which
+// target, its provider, the Vault the set was read from.
+var Own = []string{"target", "provider", "vault_addr", "vault_paths"}
+
+// Check refuses a setting the target does not know: every key must be pack's
+// own, one of names, or start with one of prefixes. A setting nothing reads
+// is a mistake — a typo, a setting of another target — never something to
+// pass over.
+func (s Settings) Check(target string, names, prefixes []string) error {
+	var unknown []string
+	for k := range s {
+		if slices.Contains(Own, k) || slices.Contains(names, k) ||
+			slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(k, p) }) {
+			continue
+		}
+		unknown = append(unknown, k)
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	slices.Sort(unknown)
+	has := slices.Clone(names)
+	for _, p := range prefixes {
+		has = append(has, p+"…")
+	}
+	return fmt.Errorf("the %s target has no setting %s; it has %s", target, strings.Join(unknown, ", "), strings.Join(has, ", "))
+}
 
 // Get returns a setting, or def when it is absent.
 func (s Settings) Get(key, def string) string {

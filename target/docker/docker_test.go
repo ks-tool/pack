@@ -313,3 +313,15 @@ func TestRenderInstalled(t *testing.T) {
 		t.Errorf("platforms: %v", again.Platforms["zookeeper"])
 	}
 }
+
+// A setting of another target, or a typo, is refused.
+func TestUnknownSetting(t *testing.T) {
+	for _, s := range []target.Settings{{"namespace": "data"}, {"netwrok": "x"}, {"kubeconfig": "x"}} {
+		if _, err := (Target{}).Configure("dev", s); err == nil {
+			t.Errorf("%v accepted", s)
+		}
+	}
+	if _, err := (Target{}).Configure("dev", target.Settings{"target": "docker", "network": "n", "secrets_pg_password": "x", "hosts_a_address": "a"}); err != nil {
+		t.Error(err)
+	}
+}

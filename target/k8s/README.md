@@ -28,8 +28,10 @@ rest are the provider's.
 | `kubectl`          | `kubectl` from `PATH`                     | The kubectl binary. A provider run from an image has to carry one.                                            |
 | `platform.<key>.…` | —                                        | The target's half of a key's platform, over what the values say — see [Platform](#platform).                  |
 
-The provider reads nothing else; other keys are ignored. A `platform.<key>.…` key the target has no word for is
-refused.
+Any other key is refused before anything is rendered: a typo, or a setting of another target, never passes
+silently. The whole set is checked — the file's keys, the Vault KV's (so a KV path read for this environment holds this
+target's settings only) and `--set`'s — except pack's own `target`, `provider`, `vault.addr` and `vault.paths`. The
+target's keys are `namespace`, `kubeconfig`, `context`, `kubectl`, `platform.…`. Within `platform.<key>.…`, a property the target has no word for is refused too.
 
 ## Platform
 
