@@ -146,7 +146,8 @@ const (
 
 // PackFile is the artifact's pack file as oci-packer's own type: a
 // component's image (a mount), its schema and its templates; a composition's
-// schema and the members it mounts. Marshal it with PackFileYAML.
+// schema and every member it holds, those of its nested compositions too.
+// Marshal it with PackFileYAML.
 func PackFile(c Component) (*packer.Pack, error) {
 	m := c.Meta()
 	if len(m.Name) == 0 || len(m.Version) == 0 {
@@ -158,12 +159,32 @@ func PackFile(c Component) (*packer.Pack, error) {
 	if comp, ok := c.(Composition); ok {
 		p.Type = ArtifactPack
 		p.Items = append(p.Items, packer.Descriptor{From: "file://schema.json", Type: ArtifactPackSchema})
-		for _, member := range comp.Members() {
-			mm := member.Meta()
-			if len(mm.Artifact) == 0 {
-				return nil, fmt.Errorf("%s: member %s has no Artifact (oci://repo) to mount it from", m.Name, mm.Name)
+		// every member the pack holds, one level: a member that is a composition
+		// itself brings its own members after it, each once — a loader finds
+		// any of them by name in the one index
+		seen := map[string]bool{m.Name: true}
+		var walk func(comp Composition) error
+		walk = func(comp Composition) error {
+			for _, member := range comp.Members() {
+				mm := member.Meta()
+				if seen[mm.Name] {
+					continue
+				}
+				seen[mm.Name] = true
+				if len(mm.Artifact) == 0 {
+					return fmt.Errorf("%s: member %s has no Artifact (oci://repo) to mount it from", m.Name, mm.Name)
+				}
+				p.Items = append(p.Items, packer.Descriptor{From: mm.Artifact + ":" + mm.Version})
+				if nested, ok := member.(Composition); ok {
+					if err := walk(nested); err != nil {
+						return err
+					}
+				}
 			}
-			p.Items = append(p.Items, packer.Descriptor{From: mm.Artifact + ":" + mm.Version})
+			return nil
+		}
+		if err := walk(comp); err != nil {
+			return nil, err
 		}
 		return p, nil
 	}

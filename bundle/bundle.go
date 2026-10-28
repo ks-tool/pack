@@ -92,6 +92,16 @@ func LoadFrom(src Source) (*Bundle, error) {
 		}
 		return load(selfOrMember{src, root}, name, s)
 	}
+	// a key that names a composition is replaced by that composition's keys
+	flat, nested, err := inline(src, root.Schema, []string{root.Name})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", root.Origin, err)
+	}
+	if nested {
+		if s, err = schema.Parse(flat); err != nil {
+			return nil, fmt.Errorf("%s: %w", root.Origin, err)
+		}
+	}
 	b, err := load(src, root.Name, s)
 	if err != nil {
 		return nil, err

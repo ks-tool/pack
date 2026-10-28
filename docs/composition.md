@@ -57,6 +57,41 @@ its own directory at render time.
   field, Postgres keeps its ports, resources and everything else. Zero
   values in the Go struct are not emitted, so only what you set counts.
 
+## Compositions of compositions
+
+A key may name another composition instead of a component — a pack made of
+packs (ADH of Ozone, Impala, …; a stand of ADH and ADPS):
+
+```go
+type Stand struct {
+    ADH  adh.ADH   `json:"adh" pack_ref:"adh" pack:"after=kdc"`
+    ADPS adps.ADPS `json:"adps" pack_ref:"adps"`
+    KDC  kdc.KDC   `json:"kdc" pack_ref:"kdc"`
+}
+```
+
+The system has one namespace of keys, so the nested composition is not a key:
+**its keys take its place**, in its order, and the values stay flat
+(`ozone-scm:`, never `adh: {ozone-scm: …}`). The loader reads a schema as a
+composition when every property but `common` is a `pack://` reference and
+nothing makes it a component.
+
+- A key two compositions both hold (`zookeeper` under ADH and under ADPS) is
+  **one key** when both name the same component; their annotations join —
+  `after` together, `spread` if either, `peers` with no role bound two ways.
+  Two components under one key are refused.
+- What the nested composition says of the system comes along: its `common`
+  (properties side by side, a property defined two ways is refused), its
+  savepoints and hooks, its rollout where the outer has none.
+- The key that names the composition may say only `after`, and it applies to
+  each of the nested keys; `spread`, `peers` and `minimum` have no meaning for
+  several keys at once and are refused.
+- A composition containing itself is refused with the chain.
+
+`pack-sdk` writes the pack file of such a composition with **every** member it
+holds, nested compositions' members too, each once — the loader finds any of
+them by name in the one index.
+
 ## Neighbours: binding roles
 
 A component declares roles and the type each wants (`Peers` in its
