@@ -190,6 +190,8 @@ pack/
 
 - [docs/authoring.md](docs/authoring.md) — writing a component in Go: facts, settings, files, argv, env, secrets,
   libraries, neighbours, formulas, readiness, hooks; every check and how to satisfy it
+- [docs/examples.md](docs/examples.md) — recipes: a database, a quorum, a service with a neighbour, a stateless
+  service, a run-to-completion step, a library, a system of them
 - [docs/composition.md](docs/composition.md) — composing components into a system
 - [docs/values.md](docs/values.md) — the operator's document and how the effective document is built
 - [docs/output.md](docs/output.md) — the `ApplicationSet` and `Secret` contract, field by field
