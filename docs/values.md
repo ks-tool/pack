@@ -87,6 +87,7 @@ they run once per replica when the `perInstance` file is rendered.
 | `peers.<role>` | the same for the key the role is bound to; absent when an optional role is unbound |
 | `peers.<role>.values` | the neighbour's own subtree, as `values` is for its formulas — see below |
 | `pack` | the context below |
+| `pack.values.<key>` | any key's own values, read without binding a role — see below |
 
 `me.service` is `<installation>-<key>`; `me.instances` are
 `<service>-<i>.<service>.<namespace>` for `x-pack.scale: replicas`, or
@@ -113,6 +114,19 @@ refused as a cycle, like formulas of one key. Three limits:
 
 A path the neighbour does not have is an error at render, like any missing
 key: guard it with `has(peers.<role>.values.<path>)`.
+
+### Every key's values
+
+`pack.values.<key>` is any key's subtree of the effective document, as
+`peers.<role>.values` is a neighbour's — without a role, so without an ordering
+edge: a key that makes something for all the others (the realm's keytabs, a
+certificate for each host) reads what each declares and still runs before
+them. The same limits hold (no password leaves, no per-replica leaves), and a
+path a key does not have is an error: `has(pack.values.<key>.<path>)`.
+
+A formula that reads `pack.values` waits for every formula that does not read
+it; two that do cannot wait for each other and see each other's computed
+leaves unsettled. The map has no order: `pack.values.map(k, k).sort()`.
 
 Functions: CEL standard, `strings`/`lists`/`math` extensions,
 `quantity(s) → int` (thousandths of a unit: `quantity("32Gi") = 32·2³⁰·1000`,

@@ -386,3 +386,46 @@ func TestCheckBundle_NeighbourPassword(t *testing.T) {
 		t.Errorf("a read of the neighbour's password must be reported: %v", ps)
 	}
 }
+
+// pack.values is the values of every key, read without binding a role: a formula that reads it waits for the
+// formulas of the other keys (dst sorts before src, and src.realm is computed), and no password is in it.
+func TestRender_PackValuesAreEveryKeys(t *testing.T) {
+	b := neighbours(t, `
+	    "keys": {"type": "array", "items": {"type": "string"}, "x-pack-compute": "pack.values.map(k, k).sort()"},
+	    "realm": {"type": "string", "x-pack-compute": "pack.values.src.realm"},
+	    "mode": {"type": "string", "x-pack-compute": "pack.values.src.conf.mode"},
+	    "seen": {"type": "string", "x-pack-compute": "has(pack.values.src.secret) ? 'visible' : 'hidden'"}`)
+	v := Values{Values: map[string]any{
+		"src": map[string]any{"secret": map[string]any{"secretRef": map[string]any{"name": "s", "key": "k"}}},
+		"dst": map[string]any{},
+	}}
+	out, err := Render(b, v, ctxOf("x", "n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := out.Report.Computed
+	if got := fmt.Sprint(c["/dst/keys"]); got != "[dst src]" {
+		t.Errorf("every key of the installation: %v", c["/dst/keys"])
+	}
+	if c["/dst/realm"] != "EX.LOCAL" || c["/dst/mode"] != "strict" {
+		t.Errorf("another key's computed and default leaves: %v %v", c["/dst/realm"], c["/dst/mode"])
+	}
+	if c["/dst/seen"] != "hidden" {
+		t.Errorf("a password leaf must not be in pack.values: %v", c["/dst/seen"])
+	}
+}
+
+// Two formulas that read pack.values cannot wait for each other: both render, each seeing the other's leaf
+// unsettled, and neither is a cycle.
+func TestRender_PackValuesReadersDoNotDeadlock(t *testing.T) {
+	b := neighbours(t, `
+	    "a": {"type": "string", "x-pack-compute": "string(size(pack.values))"},
+	    "b": {"type": "string", "x-pack-compute": "string(size(pack.values.dst))"}`)
+	out, err := Render(b, Values{Values: map[string]any{"src": map[string]any{}, "dst": map[string]any{}}}, ctxOf("x", "n"))
+	if err != nil {
+		t.Fatalf("two readers of pack.values: %v", err)
+	}
+	if out.Report.Computed["/dst/a"] != "2" {
+		t.Errorf("%v", out.Report.Computed["/dst/a"])
+	}
+}

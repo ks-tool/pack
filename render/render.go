@@ -520,6 +520,15 @@ func userWroteAbove(userSet map[string]bool, ptr string) bool {
 
 // blocked reports whether f reads a leaf whose formula is still pending.
 func (r *render) blocked(f *formula, pending map[string]*formula) bool {
+	// pack.values is every key's values: it waits for every formula that does not read it
+	// too — those cannot wait for each other, and see each other's leaves unsettled
+	if readsPackValues(f.reads) {
+		for p, g := range pending {
+			if p != f.ptr && !readsPackValues(g.reads) {
+				return true
+			}
+		}
+	}
 	for _, rd := range f.reads {
 		var target string
 		if rel, ok := strings.CutPrefix(rd, "values."); ok {
@@ -566,6 +575,9 @@ func (r *render) eval(f *formula, doc map[string]any, instance map[string]any) (
 		"me":     r.me(f.key),
 		"peers":  r.peerVars(f.key, doc, readsPeerValues(f.reads)),
 		"pack":   r.packContext(f.key, instance),
+	}
+	if readsPackValues(f.reads) {
+		vars["pack"].(map[string]any)["values"] = r.allValues(doc)
 	}
 	return compute.Eval(r.env, f.ast, vars)
 }
@@ -702,6 +714,20 @@ func (r *render) dropPasswords(ptr string, m map[string]any) {
 			r.dropPasswords(p, sub)
 		}
 	}
+}
+
+// allValues is pack.values: the values of every key of the installation, as
+// neighbourValues has them — no passwords, no per-replica leaves.
+func (r *render) allValues(doc map[string]any) map[string]any {
+	out := make(map[string]any, len(r.keys))
+	for _, k := range r.keys {
+		out[k] = r.neighbourValues(k, doc)
+	}
+	return out
+}
+
+func readsPackValues(reads []string) bool {
+	return slices.ContainsFunc(reads, func(rd string) bool { return rd == "pack.values" || strings.HasPrefix(rd, "pack.values.") })
 }
 
 // peerValuesRead splits a read of a neighbour's values — peers.<role>.values
