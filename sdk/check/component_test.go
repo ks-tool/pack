@@ -154,3 +154,17 @@ func TestScale(t *testing.T) {
 		t.Errorf("the old scale leaf must be refused: %v", ps)
 	}
 }
+
+// A neighbour's values are read through a role the component declares.
+func TestNeighbourValuesNeedADeclaredRole(t *testing.T) {
+	ps := run(t, with("[]", `{
+	  "a": {"type": "string", "x-pack-compute": "peers.zk.values.realm"},
+	  "b": {"type": "string", "x-pack-compute": "peers.zk.instances[0]"}
+	}`))
+	if !has(ps, "/conf/a", `"zk" is not a role this component declares`) {
+		t.Errorf("an undeclared role must be refused: %v", ps)
+	}
+	if has(ps, "/conf/b", "role") {
+		t.Errorf("only values reads are held to the declared roles: %v", ps)
+	}
+}

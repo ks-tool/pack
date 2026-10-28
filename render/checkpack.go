@@ -6,6 +6,7 @@ import (
 
 	"github.com/ks-tool/pack/bundle"
 	"github.com/ks-tool/pack/sdk/check"
+	"github.com/ks-tool/pack/sdk/compute"
 	"github.com/ks-tool/pack/sdk/packschema"
 	"github.com/ks-tool/pack/sdk/schema"
 )
@@ -36,6 +37,8 @@ func CheckBundle(b *bundle.Bundle) ([]check.Problem, error) {
 	r := &render{b: b, userSet: map[string]bool{}, peers: map[string]map[string]string{}, report: Report{Computed: map[string]any{}, Secrets: map[string][]string{}}}
 	if err := r.configure(Values{}); err != nil {
 		add("", "%v", err)
+	} else if err := r.checkNeighbourReads(add); err != nil {
+		return nil, err
 	}
 	keys := map[string]bool{}
 	for _, k := range b.Keys {
@@ -96,4 +99,37 @@ func CheckBundle(b *bundle.Bundle) ([]check.Problem, error) {
 	}
 	_ = packschema.PackScheme
 	return problems, nil
+}
+
+// checkNeighbourReads: a formula reading peers.<role>.values must not reach a
+// password leaf of the neighbour the role is bound to — the render takes the
+// leaf out of what it shows, so the formula would see nothing and the author
+// should hear of it. An unbound optional role is nothing to check.
+func (r *render) checkNeighbourReads(add func(path, format string, args ...any)) error {
+	env, err := compute.Env()
+	if err != nil {
+		return err
+	}
+	r.env = env
+	if err := r.collect(); err != nil {
+		add("", "%v", err)
+		return nil
+	}
+	for _, f := range r.formulas {
+		for _, rd := range f.reads {
+			role, rest, ok := peerValuesRead(rd)
+			if !ok || len(rest) == 0 {
+				continue
+			}
+			peer, bound := r.peers[f.key][role]
+			if !bound {
+				continue
+			}
+			ptr := "/" + peer + "/" + strings.ReplaceAll(rest, ".", "/")
+			if _, n, err := r.b.Composition.Lookup(ptr); err == nil && n != nil && n.IsPassword() {
+				add(f.ptr, "x-pack-compute reads the password %s of its neighbour %s: a derived value is stored", ptr, peer)
+			}
+		}
+	}
+	return nil
 }

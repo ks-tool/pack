@@ -85,6 +85,7 @@ they run once per replica when the `perInstance` file is rendered.
 | `common` | the composition's `common` |
 | `me` | `{service, instances, replicas, ports}` of the key |
 | `peers.<role>` | the same for the key the role is bound to; absent when an optional role is unbound |
+| `peers.<role>.values` | the neighbour's own subtree, as `values` is for its formulas — see below |
 | `pack` | the context below |
 
 `me.service` is `<installation>-<key>`; `me.instances` are
@@ -92,6 +93,26 @@ they run once per replica when the `perInstance` file is rendered.
 `<service>.<namespace>` for `single`; `me.ports` are the component's
 `const` ports by name. Names, never addresses: they are stable under any
 network mode, and they are known before anything is scheduled.
+
+### A neighbour's values
+
+`peers.<role>.values` is the bound key's subtree of the effective document:
+what the operator wrote for it, its defaults, and what its formulas computed.
+A formula that reads it waits for the neighbour's formulas it depends on
+(`peers.src.values.realm` after `src`'s own `/realm`), so the order is the
+reads', not the keys'; two keys that read each other's computed leaves are
+refused as a cycle, like formulas of one key. Three limits:
+
+- a **password leaf is not there**, not even as its `secretRef`: a derived
+  value is stored, and a credential must not be one (`pack check` names the
+  formula that reads one);
+- a leaf that differs **per replica** (it reads `pack.instance`, `.index`,
+  `.ordinal`) is not in it: it exists only inside that replica's file;
+- the role must be one the component declares in `x-pack.peers`, and a
+  library has no neighbours.
+
+A path the neighbour does not have is an error at render, like any missing
+key: guard it with `has(peers.<role>.values.<path>)`.
 
 Functions: CEL standard, `strings`/`lists`/`math` extensions,
 `quantity(s) → int` (thousandths of a unit: `quantity("32Gi") = 32·2³⁰·1000`,

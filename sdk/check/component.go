@@ -179,6 +179,15 @@ func Run(c Component) ([]Problem, error) {
 			if c.IsLibrary && strings.HasPrefix(r, "peers.") {
 				add(ptr, "a library reads peers (%s): only the consumer has neighbours", r)
 			}
+			// a neighbour's values are read through a role the component declares
+			if tail, ok := strings.CutPrefix(r, "peers."); ok && !c.IsLibrary {
+				role, rest, _ := strings.Cut(tail, ".")
+				if rest == "values" || strings.HasPrefix(rest, "values.") {
+					if _, declared := root.Peers[role]; !declared {
+						add(ptr, "x-pack-compute reads %s: %q is not a role this component declares in x-pack.peers", r, role)
+					}
+				}
+			}
 			if strings.HasSuffix(r, "[]") && strings.HasPrefix(r, "values.") {
 				add(ptr, "dynamic index in %s: the set of reads must be static", r)
 			}

@@ -255,3 +255,134 @@ func TestKeysContext(t *testing.T) {
 		t.Errorf("zookeeper: %v", zk)
 	}
 }
+
+// neighbours writes a composition of two keys: src, which has a computed leaf
+// (realm), a default list (principals) and a password, and dst, which reads
+// them through its peer role src. dst sorts before src, so a formula of dst
+// that did not wait for src's own formula would see nothing.
+func neighbours(t *testing.T, dstProps string) *bundle.Bundle {
+	t.Helper()
+	dir := t.TempDir()
+	write := func(name, doc string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name, "schema.json"), []byte(doc), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("src", `{
+	  "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false,
+	  "x-pack": {"scale": "single"},
+	  "properties": {
+	    "platform": {"$ref": "urn:pack:platform", "default": {}},
+	    "principals": {"type": "array", "items": {"type": "string"}, "default": ["hdfs", "HTTP"]},
+	    "realm": {"type": "string", "x-pack-compute": "common.realm + '.LOCAL'"},
+	    "conf": {"type": "object", "properties": {"mode": {"type": "string", "default": "strict"}}},
+	    "secret": {"type": "string", "format": "password"}
+	  }
+	}`)
+	write("dst", `{
+	  "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false,
+	  "x-pack": {"scale": "single", "peers": {"src": {"schema": "src", "required": true}}},
+	  "properties": {
+	    "platform": {"$ref": "urn:pack:platform", "default": {}},
+	    `+dstProps+`
+	  }
+	}`)
+	for _, name := range []string{"src", "dst"} {
+		pf := "type: application/vnd.horchestra.component.v1+json\nannotations:\n  io.horchestra.name: " + name + "\n  io.horchestra.version: \"1.0.0\"\nitems:\n  - from: oci://images/" + name + ":1.0.0\n"
+		if err := os.WriteFile(filepath.Join(dir, name, "pack.yaml"), []byte(pf), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("comp", `{
+	  "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "additionalProperties": false,
+	  "properties": {
+	    "common": {"type": "object", "properties": {"realm": {"type": "string", "default": "EX"}}},
+	    "dst": {"$ref": "pack://dst#"},
+	    "src": {"$ref": "pack://src#"}
+	  }
+	}`)
+	b, err := bundle.Load(filepath.Join(dir, "comp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// A formula reads its neighbour's values: what the neighbour's defaults say,
+// and what the neighbour's own formula computes — it waits for that formula.
+func TestRender_ReadsNeighbourValues(t *testing.T) {
+	b := neighbours(t, `
+	    "principals": {"type": "array", "items": {"type": "string"}, "x-pack-compute": "peers.src.values.principals"},
+	    "realm": {"type": "string", "x-pack-compute": "peers.src.values.realm"},
+	    "mode": {"type": "string", "x-pack-compute": "peers.src.values.conf.mode"},
+	    "all": {"type": "object", "x-pack-compute": "peers.src.values.conf"}`)
+	out, err := Render(b, Values{Values: map[string]any{"src": map[string]any{}, "dst": map[string]any{}}}, ctxOf("x", "n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := out.Report.Computed
+	if got := fmt.Sprint(c["/dst/principals"]); got != "[hdfs HTTP]" {
+		t.Errorf("a default of the neighbour: %v", c["/dst/principals"])
+	}
+	if c["/dst/realm"] != "EX.LOCAL" {
+		t.Errorf("dst sorts before src: its formula waits for src's, got %v", c["/dst/realm"])
+	}
+	if c["/dst/mode"] != "strict" {
+		t.Errorf("a nested value: %v", c["/dst/mode"])
+	}
+	if m, _ := c["/dst/all"].(map[string]any); m["mode"] != "strict" {
+		t.Errorf("a subtree: %v", c["/dst/all"])
+	}
+}
+
+// The operator's value for the neighbour is what the formula sees; a password
+// leaf is not shown at all, even as a reference.
+func TestRender_NeighbourValuesAreTheOperatorsAndHideCredentials(t *testing.T) {
+	b := neighbours(t, `
+	    "principals": {"type": "array", "items": {"type": "string"}, "x-pack-compute": "peers.src.values.principals"},
+	    "seen": {"type": "string", "x-pack-compute": "has(peers.src.values.secret) ? 'visible' : 'hidden'"},
+	    "keys": {"type": "array", "items": {"type": "string"}, "x-pack-compute": "peers.src.values.map(k, k)"}`)
+	v := Values{Values: map[string]any{
+		"src": map[string]any{
+			"principals": []any{"yarn"},
+			"secret":     map[string]any{"secretRef": map[string]any{"name": "s", "key": "k"}},
+		},
+		"dst": map[string]any{},
+	}}
+	out, err := Render(b, v, ctxOf("x", "n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := out.Report.Computed
+	if got := fmt.Sprint(c["/dst/principals"]); got != "[yarn]" {
+		t.Errorf("the operator's list: %v", c["/dst/principals"])
+	}
+	if c["/dst/seen"] != "hidden" {
+		t.Errorf("a password leaf of the neighbour must not be visible: %v", c["/dst/seen"])
+	}
+	for _, k := range c["/dst/keys"].([]any) {
+		if k == "secret" {
+			t.Errorf("the neighbour's keys include its password: %v", c["/dst/keys"])
+		}
+	}
+}
+
+// pack check says so when a formula reaches a neighbour's password.
+func TestCheckBundle_NeighbourPassword(t *testing.T) {
+	b := neighbours(t, `"leak": {"type": "string", "x-pack-compute": "string(peers.src.values.secret)"}`)
+	ps, err := CheckBundle(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, p := range ps {
+		found = found || strings.Contains(p.Message, "password /src/secret of its neighbour")
+	}
+	if !found {
+		t.Errorf("a read of the neighbour's password must be reported: %v", ps)
+	}
+}

@@ -374,6 +374,7 @@ environment ([values.md](values.md#the-cel-environment) has the full table):
 | `common` | the composition's `common` |
 | `me` | `service`, `instances[]`, `replicas`, `ports{}` — names, never addresses |
 | `peers.<role>` | the same about a bound neighbour |
+| `peers.<role>.values` | the neighbour's own values: defaults, the operator's, its settled formulas; no password leaves, no per-replica leaves — see [values.md](values.md#a-neighbours-values) |
 | `pack` | `namespace`, `installation`, `component`, `service`, `replicas`, `keys` (every key as `me`, plus `scaled`; binds nothing); per instance (§9) also `instance`, `index`, `ordinal` |
 
 Functions: the CEL standard library, the `strings`, `lists` and `math`

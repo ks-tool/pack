@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -520,11 +521,22 @@ func userWroteAbove(userSet map[string]bool, ptr string) bool {
 // blocked reports whether f reads a leaf whose formula is still pending.
 func (r *render) blocked(f *formula, pending map[string]*formula) bool {
 	for _, rd := range f.reads {
-		rel, ok := strings.CutPrefix(rd, "values.")
-		if !ok {
+		var target string
+		if rel, ok := strings.CutPrefix(rd, "values."); ok {
+			target = f.root + "/" + strings.ReplaceAll(rel, ".", "/")
+		} else if role, rest, ok := peerValuesRead(rd); ok {
+			// a neighbour's value waits for the neighbour's own formula
+			peer, bound := r.peers[f.key][role]
+			if !bound {
+				continue
+			}
+			target = "/" + peer
+			if len(rest) > 0 {
+				target += "/" + strings.ReplaceAll(rest, ".", "/")
+			}
+		} else {
 			continue
 		}
-		target := f.root + "/" + strings.ReplaceAll(rel, ".", "/")
 		for p := range pending {
 			if p == f.ptr {
 				continue
@@ -552,7 +564,7 @@ func (r *render) eval(f *formula, doc map[string]any, instance map[string]any) (
 		"limits": orEmpty(r.limits[f.key]),
 		"common": orEmpty(common),
 		"me":     r.me(f.key),
-		"peers":  r.peerVars(f.key),
+		"peers":  r.peerVars(f.key, doc, readsPeerValues(f.reads)),
 		"pack":   r.packContext(f.key, instance),
 	}
 	return compute.Eval(r.env, f.ast, vars)
@@ -650,12 +662,71 @@ func (r *render) me(key string) map[string]any {
 	return map[string]any{"service": svc, "instances": instances, "replicas": max(n, 1), "ports": ports}
 }
 
-func (r *render) peerVars(key string) map[string]any {
+// peerVars are the neighbours a key's formulas see, by role: names and ports
+// always; their values (peers.<role>.values) only where a formula reads them,
+// off doc as it stands.
+func (r *render) peerVars(key string, doc map[string]any, withValues bool) map[string]any {
 	out := map[string]any{}
 	for role, peer := range r.peers[key] {
-		out[role] = r.me(peer)
+		m := r.me(peer)
+		if withValues {
+			m["values"] = r.neighbourValues(peer, doc)
+		}
+		out[role] = m
 	}
 	return out
+}
+
+// neighbourValues is a neighbour key's subtree of doc — what the operator
+// wrote, the defaults, and the formulas settled so far — less every password
+// leaf: a derived value is stored, a credential must not be one. Leaves that
+// differ per replica are not in it; they exist only inside the replica's file.
+func (r *render) neighbourValues(peer string, doc map[string]any) map[string]any {
+	sub, _ := get(doc, "/"+peer)
+	m, _ := schema.DeepCopy(sub).(map[string]any)
+	if m == nil {
+		return map[string]any{}
+	}
+	r.dropPasswords("/"+peer, m)
+	return m
+}
+
+func (r *render) dropPasswords(ptr string, m map[string]any) {
+	for k, v := range m {
+		p := schema.Pointer(append(schema.Split(ptr), k)...)
+		if _, n, err := r.b.Composition.Lookup(p); err == nil && n != nil && n.IsPassword() {
+			delete(m, k)
+			continue
+		}
+		if sub, ok := v.(map[string]any); ok {
+			r.dropPasswords(p, sub)
+		}
+	}
+}
+
+// peerValuesRead splits a read of a neighbour's values — peers.<role>.values
+// or peers.<role>.values.<path> — into the role and the path under values.
+func peerValuesRead(rd string) (role, rest string, ok bool) {
+	tail, found := strings.CutPrefix(rd, "peers.")
+	if !found {
+		return "", "", false
+	}
+	role, tail, _ = strings.Cut(tail, ".")
+	switch {
+	case tail == "values":
+		return role, "", true
+	case strings.HasPrefix(tail, "values."):
+		rest = strings.TrimPrefix(tail, "values.")
+		if i := strings.Index(rest, "[]"); i >= 0 { // a dynamic index: the path up to it
+			rest = strings.TrimSuffix(rest[:i], ".")
+		}
+		return role, rest, true
+	}
+	return "", "", false
+}
+
+func readsPeerValues(reads []string) bool {
+	return slices.ContainsFunc(reads, func(rd string) bool { _, _, ok := peerValuesRead(rd); return ok })
 }
 
 // packContext is what formulas and templates read as `pack`: where and as
