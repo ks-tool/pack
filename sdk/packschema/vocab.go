@@ -135,7 +135,7 @@ type SecretRef struct {
 	Key  string `json:"key" jsonschema:"required,minLength=1"`
 }
 
-// Secret is the Go type of a password leaf: it marshals as {secretRef: …} and
+// Secret is the Go type of password leaf: it marshals as {secretRef: …} and
 // its schema is a string with format password (the validator swaps that for
 // $defs/secretRef, see the loader).
 type Secret struct {

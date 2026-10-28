@@ -258,7 +258,7 @@ func freePort() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	_, port, err := net.SplitHostPort(l.Addr().String())
 	return port, err
 }

@@ -45,14 +45,14 @@ const (
 	TokenKey = "pack-provider-token"
 )
 
-// Serve is the whole main of a provider binary: it listens where pack told
-// it, serves t to whoever has the token, and returns when pack closes its
-// stdin.
 // MaxMessage bounds one message between pack and a provider: a release
 // carries the files of the pack — an archive of data among them — far
 // beyond gRPC's default 4 MiB.
 const MaxMessage = 2<<30 - 1
 
+// Serve is the whole main of a provider binary: it listens where pack told
+// it, serves t to whoever has the token, and returns when pack closes its
+// stdin.
 func Serve(t target.Target) error {
 	addr := os.Getenv(EnvAddress)
 	if len(addr) == 0 {
@@ -142,7 +142,7 @@ func (s *server) Handshake(_ context.Context, req *providerpb.HandshakeRequest) 
 }
 
 func (s *server) Configure(_ context.Context, req *providerpb.ConfigureRequest) (*providerpb.ConfigureResponse, error) {
-	inst, err := s.t.Configure(req.Installation, target.Settings(req.Settings))
+	inst, err := s.t.Configure(req.Installation, req.Settings)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
