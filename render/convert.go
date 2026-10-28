@@ -224,7 +224,13 @@ func (r *render) files(key string, comp *bundle.Component, km map[string]any, fi
 			rf.Secrets = union(rf.Secrets, placeholders(sub))
 			var b []byte
 			var err error
-			if f.node.File.Format == "template" {
+			if f.node.File.Format == packschema.FormatRaw {
+				tmpl, ok := templates[f.node.File.Template]
+				if !ok {
+					return nil, fmt.Errorf("%s: file %q not found", f.ptr, f.node.File.Template)
+				}
+				return tmpl, nil
+			} else if f.node.File.Format == "template" {
 				tmpl, ok := templates[f.node.File.Template]
 				if !ok {
 					return nil, fmt.Errorf("%s: template %q not found", f.ptr, f.node.File.Template)

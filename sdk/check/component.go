@@ -248,7 +248,16 @@ func Run(c Component) ([]Problem, error) {
 		if !slices.Contains(packschema.Formats, fp.Format) && fp.Format != packschema.FormatSecret {
 			add(f.ptr, "x-pack-file.format %q is not an emitter (%s, %s)", fp.Format, strings.Join(packschema.Formats, ", "), packschema.FormatSecret)
 		}
-		if fp.Format == "template" {
+		if fp.Format == packschema.FormatRaw {
+			if len(fp.Template) == 0 {
+				add(f.ptr, "format raw needs a template name: the file it is")
+			} else if _, ok := c.Templates[fp.Template]; !ok && c.Templates != nil {
+				add(f.ptr, "template %q is not among the component's templates (%s)", fp.Template, strings.Join(keys(c.Templates), ", "))
+			}
+			if len(fp.ParseAs) > 0 {
+				add(f.ptr, "parseAs only belongs to format template")
+			}
+		} else if fp.Format == "template" {
 			if len(fp.Template) == 0 {
 				add(f.ptr, "format template needs a template name")
 			} else if _, ok := c.Templates[fp.Template]; !ok && c.Templates != nil {

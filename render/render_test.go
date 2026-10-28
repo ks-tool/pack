@@ -230,3 +230,28 @@ func TestRender_NoSelectionInstallsEverything(t *testing.T) {
 		}
 	}
 }
+
+// pack.keys names every key of the installation — a single key by its one
+// address, a scaled one by each instance — without binding any of them: the
+// key that reads it is ordered by its own peers only.
+func TestKeysContext(t *testing.T) {
+	r := &render{
+		keys: []string{"ca", "zookeeper"},
+		doc:  map[string]any{"zookeeper": map[string]any{"ports": map[string]any{"client": 2181}}},
+		resolved: map[string]*Resolved{
+			"ca": {Service: "prod-ca", Address: "prod-ca"},
+			"zookeeper": {Service: "prod-zookeeper", Instances: []Instance{
+				{Name: "prod-zookeeper-0", Address: "prod-zookeeper-0"}, {Name: "prod-zookeeper-1", Address: "prod-zookeeper-1"}}},
+		},
+		ctx: ctxOf("prod", "data"),
+	}
+	keys := r.packContext("ca", nil)["keys"].(map[string]any)
+	ca, zk := keys["ca"].(map[string]any), keys["zookeeper"].(map[string]any)
+	if !reflect.DeepEqual(ca["instances"], []any{"prod-ca"}) || ca["scaled"] != false {
+		t.Errorf("ca: %v", ca)
+	}
+	if !reflect.DeepEqual(zk["instances"], []any{"prod-zookeeper-0", "prod-zookeeper-1"}) || zk["scaled"] != true ||
+		zk["ports"].(map[string]any)["client"] != 2181 {
+		t.Errorf("zookeeper: %v", zk)
+	}
+}

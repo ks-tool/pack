@@ -15,7 +15,7 @@ import (
 const (
 	labelInstallation = "pack.horchestra.io/installation"
 	labelKey          = "pack.horchestra.io/key"
-	labelPart         = "pack.horchestra.io/part" // workload | hook | data | files | record | secret
+	labelPart         = "pack.horchestra.io/part" // workload | hook | data | files | publish | record | secret
 	labelInstance     = "pack.horchestra.io/instance"
 	labelHash         = "pack.horchestra.io/hash"
 	labelContainer    = "pack.horchestra.io/container"
@@ -45,7 +45,17 @@ type container struct {
 	Health         []string // a shell command
 	Labels         map[string]string
 	Volumes        []mount // claims: volume → path
-	Libraries      []mount // image → path
+	// the runtime half (runtime.go)
+	Hostname, Domain string
+	IP, User         string
+	DNS, GroupAdd    []string
+	SecurityOpt      []string
+	Sysctls          map[string]string
+	Shared           []shared
+	Binds            []bind
+	// Completes: it runs to completion, whatever its restart policy
+	Completes bool
+	Libraries []mount // image → path
 	// Files are the instance's config files, ${secret:…} unresolved, kept in
 	// the container's files volume on its host and mounted file by file.
 	Files       []file
@@ -81,7 +91,7 @@ func (in *Installation) containers(u render.Unit) ([]container, error) {
 }
 
 func (in *Installation) container(u render.Unit, i int) (container, error) {
-	svc := in.service(u.Key)
+	svc := in.serviceOf(u.Key, u.Platform)
 	e, err := in.engineOf(u, i)
 	if err != nil {
 		return container{}, err
@@ -95,7 +105,26 @@ func (in *Installation) container(u render.Unit, i int) (container, error) {
 		}
 	}
 	if u.RestartPolicy == "Never" {
-		c.Restart = "no"
+		c.Restart, c.Completes = "no", true
+	}
+	if r := strOf(u.Platform, "restart"); r != "" {
+		c.Restart = r
+	}
+	c.Aliases = append(c.Aliases, listOf(u.Platform, "aliases")...)
+	if h := strOf(u.Platform, "hostname"); h != "" && u.Replicas == 0 {
+		c.Hostname, c.Domain = splitHost(h)
+	} else if !in.spread() {
+		c.Hostname, c.Domain = c.Name, in.network
+	} else {
+		c.Hostname = c.Name
+	}
+	c.IP, c.User = strOf(u.Platform, "ip"), strOf(u.Platform, "user")
+	c.DNS, c.GroupAdd, c.SecurityOpt = listOf(u.Platform, "dns"), listOf(u.Platform, "groupAdd"), listOf(u.Platform, "securityOpt")
+	if c.Sysctls = mapOf(u.Platform, "sysctls"); len(c.Sysctls) == 0 {
+		c.Sysctls = nil
+	}
+	if c.Shared, c.Binds, err = in.parseMounts(u.Key, listOf(u.Platform, "mounts")); err != nil {
+		return c, err
 	}
 	if in.spread() {
 		// a neighbour reaches the instance at <host address>:<port>
@@ -136,12 +165,16 @@ func (in *Installation) container(u render.Unit, i int) (container, error) {
 		}
 	}
 	if rd := u.Readiness; rd != nil {
+		// probed at the container's own name, not 127.0.0.1: a service bound
+		// to the address its name resolves to (hdfs://adh-namenode:8020 binds
+		// that one) answers there, and so does one bound to every address
+		host := c.Name
 		switch {
 		case rd.TCP != nil:
 			p := strconv.Itoa(rd.TCP.Port)
-			c.Health = []string{"CMD-SHELL", "nc -z 127.0.0.1 " + p + " || bash -c '</dev/tcp/127.0.0.1/" + p + "'"}
+			c.Health = []string{"CMD-SHELL", "nc -z " + host + " " + p + " || bash -c '</dev/tcp/" + host + "/" + p + "'"}
 		case rd.HTTP != nil:
-			url := fmt.Sprintf("http://127.0.0.1:%d%s", rd.HTTP.Port, rd.HTTP.Path)
+			url := fmt.Sprintf("http://%s:%d%s", host, rd.HTTP.Port, rd.HTTP.Path)
 			c.Health = []string{"CMD-SHELL", "curl -fsS -o /dev/null " + url + " || wget -q -O /dev/null " + url}
 		case len(rd.Exec) > 0:
 			c.Health = append([]string{"CMD"}, rd.Exec...)

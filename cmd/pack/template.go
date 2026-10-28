@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/ks-tool/pack/render"
+	"github.com/ks-tool/pack/target"
 )
 
 type multiFlag []string
@@ -89,17 +90,23 @@ func newTemplateCmd() *cobra.Command {
 			}
 			return nil
 		}
-		for _, f := range out.Files {
-			p := filepath.Join(*outDir, filepath.FromSlash(f.Path))
-			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-				return err
-			}
-			if err := os.WriteFile(p, f.Data, f.Mode); err != nil {
-				return err
-			}
-		}
-		fmt.Printf("wrote %s: %d file(s) for %s\n", *outDir, len(out.Files), tf.target())
-		return nil
+		return writeOutput(*outDir, out, tf.target())
 	}
 	return cmd
+}
+
+// writeOutput writes the target's files under dir, as `pack template -o`
+// does and `pack apply -o` before its saga.
+func writeOutput(dir string, out *target.Output, targetName string) error {
+	for _, f := range out.Files {
+		p := filepath.Join(dir, filepath.FromSlash(f.Path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, f.Data, f.Mode); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("wrote %s: %d file(s) for %s\n", dir, len(out.Files), targetName)
+	return nil
 }

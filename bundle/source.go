@@ -51,6 +51,10 @@ type dirSource struct{ dir string }
 
 // Dir is the source rooted at a composition or component directory; members
 // are the sibling directories.
+// MaxTemplate bounds one template of a component read from a registry: a raw
+// file is the component's data, byte for byte.
+const MaxTemplate = 1 << 30
+
 func Dir(dir string) Source { return dirSource{dir} }
 
 func (d dirSource) Root() (*Files, error) { return dirFiles(d.dir) }
@@ -299,7 +303,12 @@ func (r *registrySource) files(idx ocispec.Index, digest string) (*Files, error)
 					return nil, fmt.Errorf("%s: a template layer without a title", f.Origin)
 				}
 				title = strings.TrimPrefix(title, "templates/")
-				b, err := r.c.Blob(r.ctx, r.ref.Host, r.ref.Repo, l.Digest.String(), 1<<20)
+				// a template is the component's file: a script, or a raw file — a dump,
+				// an archive of data — as large as the layer says, up to MaxTemplate
+				if l.Size > MaxTemplate {
+					return nil, fmt.Errorf("%s: template %s: %d bytes, more than %d", f.Origin, title, l.Size, int64(MaxTemplate))
+				}
+				b, err := r.c.Blob(r.ctx, r.ref.Host, r.ref.Repo, l.Digest.String(), max(l.Size, 1<<20))
 				if err != nil {
 					return nil, fmt.Errorf("%s: template %s: %w", f.Origin, title, err)
 				}

@@ -114,6 +114,9 @@ type render struct {
 	// read of each key's resources.
 	resolved map[string]*Resolved
 	limits   map[string]map[string]any
+	// keysVar is pack.keys: every selected key as `me` describes it, built
+	// once the target has resolved them all
+	keysVar map[string]any
 }
 
 // Render runs the link: configure → mutate → validate → convert, and stops at
@@ -664,9 +667,27 @@ func (r *render) packContext(key string, instance map[string]any) map[string]any
 		"component":    key,
 		"service":      r.resolved[key].Service,
 		"replicas":     max(r.replicas(key), 1),
+		"keys":         r.keysContext(),
 	}
 	maps.Copy(h, instance)
 	return h
+}
+
+// keysContext is pack.keys: every key of the installation by name, as `me`
+// describes it, plus `scaled` — whether its instances are replicas (a
+// per-instance Secret key carries the index). Reading it binds nothing: a
+// key that names every host of the installation (a CA, a realm's plan) runs
+// before them, which a peer could not.
+func (r *render) keysContext() map[string]any {
+	if r.keysVar == nil {
+		r.keysVar = map[string]any{}
+		for _, k := range r.keys {
+			m := r.me(k)
+			m["scaled"] = r.replicas(k) > 0
+			r.keysVar[k] = m
+		}
+	}
+	return r.keysVar
 }
 
 // instanceVars are the per-replica fields of the pack context.

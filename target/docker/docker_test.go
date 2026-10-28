@@ -1,10 +1,14 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -200,7 +204,7 @@ func TestPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Address != "dev-pg" || res.Platform["publish"].(map[string]any)["pg"] != int64(15432) {
+	if res.Address != "dev-pg.dev" || res.Platform["publish"].(map[string]any)["pg"] != int64(15432) {
 		t.Errorf("%+v", res)
 	}
 	if _, err := inst.Resolve("pg", "replicas", map[string]any{"replicas": 2}, false); err == nil {
@@ -260,6 +264,14 @@ func TestFileState(t *testing.T) {
 	}
 	if _, ok, _ := dev.state.secret(ctx, "prod-pg", "password"); ok {
 		t.Error("dev sees prod's credential")
+	}
+	// a keytab a job published is no text: kept byte for byte
+	keytab := string([]byte{0x05, 0x02, 0x00, 0xff, 0xfe, 'k'})
+	if err := prod.state.keep(ctx, "adh-keytabs", "hdfs-nn", keytab); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := prod.resolver(ctx, nil)("adh-keytabs/hdfs-nn"); err != nil || v != keytab {
+		t.Errorf("binary credential: %q %v", v, err)
 	}
 	if err := prod.WriteInstalled([]byte("not json")); err == nil {
 		t.Error("a record that is not JSON is refused")
@@ -323,5 +335,122 @@ func TestUnknownSetting(t *testing.T) {
 	}
 	if _, err := (Target{}).Configure("dev", target.Settings{"target": "docker", "network": "n", "secrets_pg_password": "x", "hosts_a_address": "a"}); err != nil {
 		t.Error(err)
+	}
+}
+
+// What a job leaves in publish/<name>/<key> is published; its working
+// directories — deeper, or dotted — are not.
+func TestPublished(t *testing.T) {
+	var b bytes.Buffer
+	tw := tar.NewWriter(&b)
+	for _, f := range []struct{ name, data string }{
+		{"publish/", ""}, {"publish/adh-tls/", ""},
+		{"publish/adh-tls/ca.crt", "CA"}, {"publish/adh-tls/dn-keystore.jks.1", "JKS"},
+		{"publish/adh-tls/.ca.key", "no"}, {"publish/.work/ca.key", "no"},
+		{"publish/adh-tls/hosts/x.crt", "no"}, {"publish/stray", "no"},
+	} {
+		h := &tar.Header{Name: f.name, Mode: 0o644, Size: int64(len(f.data)), Typeflag: tar.TypeReg}
+		if strings.HasSuffix(f.name, "/") {
+			h.Typeflag, h.Size = tar.TypeDir, 0
+		}
+		if err := tw.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = tw.Write([]byte(f.data))
+	}
+	_ = tw.Close()
+	got, err := published(b.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []publication{{"adh-tls", "ca.crt", "CA"}, {"adh-tls", "dn-keystore.jks.1", "JKS"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("published: %v", got)
+	}
+}
+
+// A value longer than an argument of argv may be (a CA bundle) is kept in
+// chunks: every label fits, and they join back to the value.
+func TestValueLabels(t *testing.T) {
+	small := valueLabels("s3cret")
+	if len(small) != 2 || small[1] != labelValue+"=czNjcmV0" {
+		t.Errorf("small: %v", small)
+	}
+	big := strings.Repeat("x", 200<<10)
+	args := valueLabels(big)
+	var enc strings.Builder
+	n := 0
+	for i := 1; i < len(args); i += 2 {
+		k, v, _ := strings.Cut(args[i], "=")
+		if len(args[i]) > 128<<10 {
+			t.Fatalf("label %s is %d bytes", k, len(args[i]))
+		}
+		if k == labelChunks {
+			if v != fmt.Sprint(n) {
+				t.Errorf("chunks %s, %d labels", v, n)
+			}
+			continue
+		}
+		if k != fmt.Sprintf("%s.%d", labelValue, n) {
+			t.Errorf("label %d is %s", n, k)
+		}
+		enc.WriteString(v)
+		n++
+	}
+	if dec, err := base64.StdEncoding.DecodeString(enc.String()); err != nil || string(dec) != big {
+		t.Errorf("the chunks do not join back: %v", err)
+	}
+}
+
+// The runtime half of a key's platform — compose's words — comes from the
+// environment: the container's name and hostname, the address its hostname
+// is, a fixed address, the volumes the installation's keys share and the
+// host's paths.
+func TestRuntime(t *testing.T) {
+	inst, err := Target{}.Configure("adh-show", target.Settings{
+		"network": "adh.local", "network_subnet": "10.99.0.0/24",
+		"platform_kdc_name": "kdc", "platform_kdc_hostname": "kdc.adh.local", "platform_kdc_ip": "10.99.0.10",
+		"platform_kdc_mounts": "stand:/etc/ldap-kdc/stand:ro,/var/run/docker.sock:/var/run/docker.sock:ro",
+		"platform_kdc_sysctls_net.ipv4.ip_unprivileged_port_start": "0",
+		"platform_kdc_securityopt":                                 "label=disable",
+		"platform_krb5-conf_mounts":                                "stand/krb5:/out",
+		"platform_krb5-conf_restart":                               "on-failure",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := inst.(*Installation)
+	res, err := in.Resolve("kdc", "single", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Service != "kdc" || res.Address != "kdc.adh.local" {
+		t.Errorf("kdc resolves to %s at %s", res.Service, res.Address)
+	}
+	c, err := in.container(render.Unit{Key: "kdc", Image: "ldap-kdc", Platform: res.Platform}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(in.runtimeArgs(c), " ")
+	for _, want := range []string{"--ip 10.99.0.10", "--sysctl net.ipv4.ip_unprivileged_port_start=0", "--security-opt label=disable",
+		"--mount type=volume,source=adh-show-stand,target=/etc/ldap-kdc/stand,readonly", "--volume /var/run/docker.sock:/var/run/docker.sock:ro"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("args %q miss %q", args, want)
+		}
+	}
+	if c.Name != "kdc" || c.Hostname != "kdc" || c.Domain != "adh.local" {
+		t.Errorf("container %s, hostname %s, domain %s", c.Name, c.Hostname, c.Domain)
+	}
+	res, _ = in.Resolve("krb5-conf", "single", nil, false)
+	j, err := in.container(render.Unit{Key: "krb5-conf", Image: "ldap-kdc", RestartPolicy: "Never", Platform: res.Platform}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Name != "adh-show-krb5-conf" || j.Restart != "on-failure" || !j.Completes ||
+		len(j.Shared) != 1 || j.Shared[0].Subpath != "krb5" || j.Shared[0].Volume != "adh-show-stand" {
+		t.Errorf("krb5-conf: %+v", j)
+	}
+	if _, _, err := in.parseMounts("x", []string{"stand:/x:z,ro,rw", "relative"}); err == nil {
+		t.Error("a mount without a target is refused")
 	}
 }

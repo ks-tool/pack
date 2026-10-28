@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 )
 
 // state is where an installation's record and the credentials pack
@@ -37,6 +38,10 @@ const (
 	labelSecret     = "pack.horchestra.io/secret"
 	labelSecretKey  = "pack.horchestra.io/secret-key"
 	labelValue      = "pack.horchestra.io/value"
+	// labelChunks: a value too long for one argument of docker's argv (the
+	// kernel's MAX_ARG_STRLEN, 128 KiB — a CA bundle) is labelValue.0, .1, …
+	labelChunks = "pack.horchestra.io/chunks"
+	chunkSize   = 64 << 10
 )
 
 // engineState keeps the state on the engine, in volumes that hold nothing.
@@ -120,12 +125,41 @@ func (s engineState) secrets(ctx context.Context, name, key string) (string, []s
 	if err != nil || len(names) == 0 {
 		return "", nil, err
 	}
-	enc, err := s.engine().docker(ctx, nil, nil, nil, "volume", "inspect", "--format", `{{index .Labels "`+labelValue+`"}}`, names[0])
+	raw, err := s.engine().docker(ctx, nil, nil, nil, "volume", "inspect", "--format", `{{json .Labels}}`, names[0])
 	if err != nil {
 		return "", nil, err
 	}
-	v, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(enc)))
+	var labels map[string]string
+	if err := json.Unmarshal(raw, &labels); err != nil {
+		return "", nil, err
+	}
+	enc := labels[labelValue]
+	if n, err := strconv.Atoi(labels[labelChunks]); err == nil {
+		var b strings.Builder
+		for i := range n {
+			b.WriteString(labels[labelValue+"."+strconv.Itoa(i)])
+		}
+		enc = b.String()
+	}
+	v, err := base64.StdEncoding.DecodeString(enc)
 	return string(v), names, err
+}
+
+// valueLabels are the labels that keep a credential's value: one, or the
+// chunks of one too long for an argument.
+func valueLabels(value string) []string {
+	enc := base64.StdEncoding.EncodeToString([]byte(value))
+	if len(enc) <= chunkSize {
+		return []string{"--label", labelValue + "=" + enc}
+	}
+	var args []string
+	n := 0
+	for ; len(enc) > 0; n++ {
+		c := enc[:min(chunkSize, len(enc))]
+		enc = enc[len(c):]
+		args = append(args, "--label", labelValue+"."+strconv.Itoa(n)+"="+c)
+	}
+	return append(args, "--label", labelChunks+"="+strconv.Itoa(n))
 }
 
 func (s engineState) secret(ctx context.Context, name, key string) (string, bool, error) {
@@ -145,11 +179,11 @@ func (s engineState) keep(ctx context.Context, name, key, value string) error {
 		}
 	}
 	sum := sha256.Sum256([]byte(in.installation + "/" + name + "/" + key))
-	_, err = s.engine().docker(ctx, nil, nil, nil, "volume", "create",
-		"--label", labelInstallation+"="+in.installation, "--label", labelPart+"=secret",
-		"--label", labelSecret+"="+name, "--label", labelSecretKey+"="+key,
-		"--label", labelValue+"="+base64.StdEncoding.EncodeToString([]byte(value)),
-		containerName("pack-secret-"+name+"-"+hex.EncodeToString(sum[:4])))
+	args := append([]string{"volume", "create",
+		"--label", labelInstallation + "=" + in.installation, "--label", labelPart + "=secret",
+		"--label", labelSecret + "=" + name, "--label", labelSecretKey + "=" + key}, valueLabels(value)...)
+	_, err = s.engine().docker(ctx, nil, nil, nil, append(args,
+		containerName("pack-secret-"+name+"-"+hex.EncodeToString(sum[:4])))...)
 	return err
 }
 
@@ -170,6 +204,9 @@ type stateFile struct {
 type installationState struct {
 	Record  json.RawMessage   `json:"record,omitempty"`
 	Secrets map[string]string `json:"secrets,omitempty"`
+	// Binary are the credentials that are no UTF-8 text — a keytab, a
+	// keystore a job published — base64: a JSON string would mangle them.
+	Binary map[string]string `json:"binary,omitempty"`
 }
 
 // newFileState is the state in path; ~/ is the home directory, a relative
@@ -289,19 +326,37 @@ func (s *fileState) secret(_ context.Context, name, key string) (string, bool, e
 	if st == nil {
 		return "", false, nil
 	}
+	if b, ok := st.Binary[name+"/"+key]; ok {
+		v, err := base64.StdEncoding.DecodeString(b)
+		return string(v), err == nil, err
+	}
 	v, ok := st.Secrets[name+"/"+key]
 	return v, ok, nil
 }
 
 func (s *fileState) keep(_ context.Context, name, key, value string) error {
+	ref, text := name+"/"+key, utf8.ValidString(value)
+	enc := base64.StdEncoding.EncodeToString([]byte(value))
 	return s.update(func(st *installationState) bool {
-		if v, ok := st.Secrets[name+"/"+key]; ok && v == value {
+		if v, ok := st.Secrets[ref]; ok && text && v == value {
 			return false
 		}
-		if st.Secrets == nil {
-			st.Secrets = map[string]string{}
+		if v, ok := st.Binary[ref]; ok && !text && v == enc {
+			return false
 		}
-		st.Secrets[name+"/"+key] = value
+		delete(st.Secrets, ref)
+		delete(st.Binary, ref)
+		if text {
+			if st.Secrets == nil {
+				st.Secrets = map[string]string{}
+			}
+			st.Secrets[ref] = value
+		} else {
+			if st.Binary == nil {
+				st.Binary = map[string]string{}
+			}
+			st.Binary[ref] = enc
+		}
 		return true
 	})
 }

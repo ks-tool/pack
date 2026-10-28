@@ -96,8 +96,8 @@ in Go, `provider.Serve` does all of it.
 `<installation>-<key>` (a Job when it runs to completion), its config files a Secret per directory mounted file by file
 over the image (a per-instance file by `subPathExpr: $(POD_NAME)`), its claims `volumeClaimTemplates`, its libraries
 image volumes (a runtime that has them: CRI-O, containerd ≥ 2.1, the ImageVolume gate). Its half of the platform is
-`replicas`, `nodeSelector`, `priorityClassName`, `storageClass`; it performs the saga's steps with `kubectl` — the
-kubeconfig, context and namespace from the environment — resolves `${secret:…}` from the cluster's Secrets when it
+`replicas`, `nodeSelector`, `priorityClassName`, `storageClass`; it performs the saga's steps against the API server
+with client-go — the kubeconfig, context and namespace from the environment — resolves `${secret:…}` from the cluster's Secrets when it
 applies, runs hooks as Jobs and keeps the installation's record in the ConfigMap `pack-<installation>`
 (`examples/adh/envs/k8s.yaml`, golden output in `target/k8s/testdata/adh`). Every setting:
 [target/k8s/README.md](target/k8s/README.md).
@@ -151,7 +151,7 @@ templates and the image configs itself and never an image layer — see
 | `pack template --pack <dir\|ref> --values <file> --name <installation> [--config <env.yaml>] [--target horchestra] [--provider <path\|oci://image>] [--set <k>=<v> …] [--namespace <ns>] [-o <dir>] [--plain-http] [--secretProvider generate\|env\|file:<dir> --secret <pointer> …]` | Render for a target. `--pack` is a composition or a lone component, as a directory or a registry reference. `--target` picks the system — its provider `pack-provider-<target>` is run (today `horchestra`, the default) — `--set` passes its settings — horchestra takes `namespace`, `--namespace` is the shorthand; a setting the target does not know is refused. Without `-o`, the target's objects as a YAML stream on stdout. `--secret` names password leaves the tool provisions itself (an explicit allowlist); the provider says where their values come from — see [docs/values.md](docs/values.md#credentials-the-tool-creates). |
 | `pack schema vocabulary\|platform [--target <t>]` | Print the `x-pack-*` vocabulary the tool ships (`horchestra://pack/v1`), or the schema a target gives the platform half (the slot `urn:pack:platform`). |
 | `pack plan [--from <dir\|ref>] --to <dir\|ref> --values <file> [--savepoints auto\|none\|k1,k2] [--no-rollback k1,k2\|all] [--strict] [-o plan.yaml] [--plain-http]`                   | The saga: a first installation (no `--from`) or the upgrade between two versions — what changes, which hooks run, the rollback units and how far a failure rolls back ([docs/saga.md](docs/saga.md)). Prints the plan; `-o` also writes it as YAML.                                                                                            |
-| `pack apply --pack <dir\|ref> --values <file> --name <installation> [--config <env.yaml>] [--target <t>] [--set <k>=<v> …] [--savepoints …] [--no-rollback …] [--strict] [--dry-run] [--from-start] [--secretProvider … --secret …]` | Install or upgrade on a target that performs steps (`execute` capability): the target says what is installed, pack plans the saga, drives it step by step through the provider and rolls a failed unit back; an unfinished saga is continued from its last savepoint by the same command, `--from-start` runs it from its first step; the record of the installation stays with the target ([docs/saga.md](docs/saga.md#execution)). |
+| `pack apply --pack <dir\|ref> --values <file> --name <installation> [--config <env.yaml>] [--target <t>] [--set <k>=<v> …] [--savepoints …] [--no-rollback …] [--strict] [--dry-run] [--from-start] [-o <dir>] [--secretProvider … --secret …]` | Install or upgrade on a target that performs steps (`execute` capability): the target says what is installed, pack plans the saga, drives it step by step through the provider and rolls a failed unit back; an unfinished saga is continued from its last savepoint by the same command, `--from-start` runs it from its first step; the record of the installation stays with the target ([docs/saga.md](docs/saga.md#execution)). `-o` first writes the target's files of the version to install, as `pack template -o` does. |
 | `pack rollback --name <installation> [--config <env.yaml>] [--target <t>] [--set <k>=<v> …] [--dry-run]` | Take an installation back: an unfinished saga is undone whole — its units behind savepoints too; after a finished one, a saga back to the version it replaced ([docs/saga.md](docs/saga.md#execution)). |
 
 ## Repository layout
@@ -160,7 +160,7 @@ templates and the image configs itself and never an image layer — see
 pack/
   cmd/pack/            the CLI
   cmd/pack-provider-horchestra/  the horchestra provider: target/horchestra behind the provider protocol
-  cmd/pack-provider-k8s/         the Kubernetes provider: target/k8s — StatefulSets, Services, Secrets; steps through kubectl
+  cmd/pack-provider-k8s/         the Kubernetes provider: target/k8s — StatefulSets, Services, Secrets; steps through client-go
   cmd/pack-provider-docker/      the Docker provider: target/docker — a container per instance on one engine or across hosts; steps through docker
   proto/               provider.proto — the protocol between pack and a provider; gen.sh regenerates provider/providerpb
   provider/            Launch (pack's side: a provider binary as a target.Target) and Serve (a provider binary's main)

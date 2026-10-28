@@ -3,8 +3,8 @@
 // its config files a Secret per directory, each file mounted over the image
 // by subPath; its claims volumeClaimTemplates; its libraries image volumes.
 // The target's half of the platform is replicas, nodeSelector,
-// priorityClassName, storageClass. It performs steps through kubectl, which
-// carries whatever authentication the kubeconfig names.
+// priorityClassName, storageClass. It performs steps through the API server
+// with client-go, with whatever authentication the kubeconfig names.
 package k8s
 
 import (
@@ -13,6 +13,10 @@ import (
 	"maps"
 	"strconv"
 	"strings"
+	"sync"
+
+	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/ks-tool/pack/render"
 	"github.com/ks-tool/pack/target"
@@ -22,16 +26,16 @@ import (
 var platformSchema []byte
 
 // Target is Kubernetes as a target. Of the environment's set it reads
-// namespace (default "default"), kubeconfig and context (kubectl's), kubectl
-// (the binary, default from PATH), and platform_<key>_… for its half of
-// each key's platform.
+// namespace (default "default"), kubeconfig and context (client-go's
+// loading rules, in a pod its service account), and platform_<key>_… for its
+// half of each key's platform.
 type Target struct{}
 
 func (Target) Name() string           { return "k8s" }
 func (Target) Capabilities() []string { return []string{target.CapExecute} }
 
 func (Target) Configure(installation string, settings target.Settings) (target.Installation, error) {
-	if err := settings.Check("k8s", []string{"namespace", "kubeconfig", "context", "kubectl"}, []string{"platform_"}); err != nil {
+	if err := settings.Check("k8s", []string{"namespace", "kubeconfig", "context"}, []string{"platform_"}); err != nil {
 		return nil, err
 	}
 	return &Installation{
@@ -48,6 +52,13 @@ type Installation struct {
 	installation, namespace string
 	kubeconfig, context     string
 	settings                map[string]string
+
+	// the cluster's clients, made on first use; a test sets fakes. client
+	// takes any object; clientset is for what is no object, a pod's log.
+	once      sync.Once
+	client    client.Client
+	clientset kubernetes.Interface
+	clientErr error
 }
 
 func (in *Installation) Namespace() string { return in.namespace }

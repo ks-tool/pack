@@ -1,8 +1,8 @@
 # k8s — Kubernetes as a target
 
 `--target k8s` runs `pack-provider-k8s`. A pack goes to one namespace of a cluster: StatefulSets, Jobs, Services and
-Secrets. The provider performs each step of a saga with `kubectl`, which carries whatever authentication the kubeconfig
-names.
+Secrets. The provider performs each step of a saga against the API server with client-go, under whatever authentication
+the kubeconfig names; it needs no `kubectl`.
 
 ## Where settings come from
 
@@ -23,15 +23,14 @@ rest are the provider's.
 | Setting            | Default                                  | Meaning                                                                                                      |
 |--------------------|------------------------------------------|--------------------------------------------------------------------------------------------------------------|
 | `namespace`        | `default`                                | The namespace everything goes to, the record included. It must exist.                                         |
-| `kubeconfig`       | kubectl's own (`$KUBECONFIG`, `~/.kube/config`) | `kubectl --kubeconfig`.                                                                                |
-| `context`          | the kubeconfig's current context         | `kubectl --context`.                                                                                          |
-| `kubectl`          | `kubectl` from `PATH`                     | The kubectl binary. A provider run from an image has to carry one.                                            |
+| `kubeconfig`       | `$KUBECONFIG`, then `~/.kube/config`; in a pod with neither, its service account | The kubeconfig file; `~/` is the home directory.                         |
+| `context`          | the kubeconfig's current context         | The kubeconfig's context to use.                                                                              |
 | `platform.<key>.…` | —                                        | The target's half of a key's platform, over what the values say — see [Platform](#platform).                  |
 
 Any other key is refused before anything is rendered: a typo, or a setting of another target, never passes
 silently. The whole set is checked — the file's keys, the Vault KV's (so a KV path read for this environment holds this
 target's settings only) and `--set`'s — except pack's own `target`, `provider`, `vault.addr` and `vault.paths`. The
-target's keys are `namespace`, `kubeconfig`, `context`, `kubectl`, `platform.…`. Within `platform.<key>.…`, a property the target has no word for is refused too.
+target's keys are `namespace`, `kubeconfig`, `context`, `platform.…`. Within `platform.<key>.…`, a property the target has no word for is refused too.
 
 ## Platform
 
@@ -85,8 +84,8 @@ therefore a change that `pack apply` performs, and `pack rollback` returns to th
 
 | Step   | What the provider does                                                                                                                       |
 |--------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| apply  | Server-side apply (`--field-manager=pack --force-conflicts`) of the key's objects, with `${secret:…}` in config Secrets resolved first.      |
-| wait   | `kubectl rollout status`; for a Job, polling until it succeeds or fails. Logs are told either way.                                           |
+| apply  | Server-side apply of the key's objects (field manager `pack`, taking over conflicting fields), with `${secret:…}` in config Secrets resolved first. Each object is told as `created`, `configured` or `unchanged`. |
+| wait   | Until every replica of the StatefulSet is ready at its current revision, as `kubectl rollout status` waits; for a Job, until it succeeds or fails. Logs are told either way. |
 | stop   | Scales the StatefulSet to 0 and waits for the pods to go.                                                                                    |
 | hook   | A Job of the hook's image and command, with the key's files and env; an exclusive hook also gets replica 0's claims.                         |
 | remove | Deletes the workload, the Service and the config Secrets; the claims stay.                                                                   |
@@ -109,7 +108,7 @@ namespace.
 
 ## Requirements and limits
 
-- `kubectl` where the provider runs, and rights in the namespace for StatefulSets, Jobs, Services, Secrets, ConfigMaps,
-  PVCs and pods (logs).
+- Rights in the namespace for StatefulSets, Jobs, Services, Secrets, ConfigMaps,
+  PVCs and pods (list, logs).
 - The immutable fields of a StatefulSet (`volumeClaimTemplates`, the selector) are not recreated on a change: apply
   refuses.

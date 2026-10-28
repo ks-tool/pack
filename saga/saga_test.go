@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ks-tool/pack/plan"
@@ -13,17 +14,27 @@ import (
 )
 
 // memory is a target that performs nothing: it logs what it was asked, fails
-// the step named in fail, and keeps the record in memory.
+// the step named in fail, and keeps the record in memory. during, when set,
+// hears each step as it runs — an interrupt arrives there — and a step whose
+// context is done by then fails as cut short.
 type memory struct {
 	log    []string
 	fail   string // "<kind> <key>"
 	record []byte
 	writes int
+	during func(what string)
 }
 
 func (m *memory) ReadInstalled() ([]byte, bool, error) { return m.record, m.record != nil, nil }
-func (m *memory) WriteInstalled(r []byte) error        { m.record = r; m.writes++; return nil }
-func (m *memory) Execute(_ context.Context, s target.Step, events func(string)) error {
+func (m *memory) WriteInstalled(r []byte) error {
+	m.record = r
+	m.writes++
+	if m.during != nil {
+		m.during(fmt.Sprintf("write %d", m.writes))
+	}
+	return nil
+}
+func (m *memory) Execute(ctx context.Context, s target.Step, events func(string)) error {
 	what := s.Kind + " " + s.Key
 	if s.Rollback {
 		what = "undo " + what
@@ -36,6 +47,12 @@ func (m *memory) Execute(_ context.Context, s target.Step, events func(string)) 
 	}
 	m.log = append(m.log, what)
 	events("did " + what)
+	if m.during != nil {
+		m.during(what)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if what == m.fail {
 		return errors.New("boom")
 	}
@@ -325,5 +342,181 @@ func TestPlatformIsRecorded(t *testing.T) {
 	}
 	if got.Previous == nil || fmt.Sprint(got.Previous.Platform) != "map[a:map[hosts:[h1]]]" {
 		t.Errorf("previous: %+v", got.Previous)
+	}
+}
+
+// interrupted runs the saga and interrupts it where the step at soft runs,
+// then — the second interrupt — where the step at hard runs.
+func interrupted(t *testing.T, m *memory, p *plan.Plan, from, to *render.Release, soft, hard string) (*Record, error) {
+	t.Helper()
+	interrupt, cancelSoft := context.WithCancel(context.Background())
+	ctx, cancelHard := context.WithCancel(context.Background())
+	defer cancelSoft()
+	defer cancelHard()
+	m.during = func(what string) {
+		switch what {
+		case soft:
+			cancelSoft()
+		case hard:
+			cancelHard()
+		}
+	}
+	rec := &Record{Pack: "old", Name: "x", Version: "1", State: Installed, Saga: &Progress{Pack: "new", Version: "2"}}
+	r := &Run{Plan: p, From: from, To: to, Exec: m, Record: rec, Interrupt: interrupt}
+	err := r.Execute(ctx)
+	m.during = nil
+	got, rerr := Read(m)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	return got, err
+}
+
+// The first interrupt cuts c's apply short and fails it: its unit rolls back
+// as for any failure.
+func TestInterruptRollsTheUnitBack(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{}
+	rec, err := interrupted(t, m, p, from, to, "apply c c:2", "")
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("the saga must fail as interrupted: %v", err)
+	}
+	want := []string{"apply a a:2", "wait a", "apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2",
+		"undo apply c c:1", "undo hook b b:2", "undo remove b"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("steps:\n got %v\nwant %v", m.log, want)
+	}
+	if rec.State != Failed || rec.Saga.Failed != 6 || rec.Saga.Error != "interrupted" ||
+		!reflect.DeepEqual(rec.Saga.Done, []int{1, 2}) || rec.Saga.Current != 0 {
+		t.Errorf("record after the interrupt: %+v", rec.Saga)
+	}
+}
+
+// An interrupt between steps — a's wait recorded done, b's apply not yet
+// begun — keeps the next one from starting: unit 2 has nothing to undo.
+func TestInterruptBetweenSteps(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{}
+	rec, err := interrupted(t, m, p, from, to, "write 3", "")
+	if !errors.Is(err, ErrInterrupted) || !strings.HasSuffix(err.Error(), "rolled back: nothing") {
+		t.Fatalf("the saga must fail as interrupted, nothing rolled back: %v", err)
+	}
+	if want := []string{"apply a a:2", "wait a"}; !reflect.DeepEqual(m.log, want) {
+		t.Errorf("steps:\n got %v\nwant %v", m.log, want)
+	}
+	if rec.Saga.Failed != 3 || !reflect.DeepEqual(rec.Saga.Done, []int{1, 2}) || rec.Saga.Current != 0 {
+		t.Errorf("record: %+v", rec.Saga)
+	}
+}
+
+// A wait cut short fails, and its unit — a's apply — is undone.
+func TestInterruptedWait(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{}
+	rec, err := interrupted(t, m, p, from, to, "wait a", "")
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("the saga must fail as interrupted: %v", err)
+	}
+	if want := []string{"apply a a:2", "wait a", "undo apply a a:1"}; !reflect.DeepEqual(m.log, want) {
+		t.Errorf("steps:\n got %v\nwant %v", m.log, want)
+	}
+	if rec.Saga.Failed != 2 || len(rec.Saga.Done) != 0 {
+		t.Errorf("record: %+v", rec.Saga)
+	}
+}
+
+// The second interrupt stops the rollback at once. The record says what is
+// in effect and which apply was under way; the same apply again undoes them
+// and runs the unit from its start.
+func TestSecondInterruptStops(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{}
+	rec, err := interrupted(t, m, p, from, to, "apply c c:2", "undo apply c c:1")
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("the saga must stop as interrupted: %v", err)
+	}
+	want := []string{"apply a a:2", "wait a", "apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2", "undo apply c c:1"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("steps:\n got %v\nwant %v", m.log, want)
+	}
+	if !rec.Unfinished() || !reflect.DeepEqual(rec.Saga.Done, []int{1, 2, 3, 4, 5}) || rec.Saga.Current != 6 {
+		t.Fatalf("record after the second interrupt: %s %+v", rec.State, rec.Saga)
+	}
+
+	got, err := resumeWith(t, m, p, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"undo apply c c:1", "undo hook b b:2", "undo remove b",
+		"apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2", "wait c"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("resumed steps:\n got %v\nwant %v", m.log, want)
+	}
+	if got.State != Installed || got.Version != "2" {
+		t.Errorf("record after the resumed saga: %+v", got)
+	}
+}
+
+// pack rollback after the second interrupt takes everything back, the apply
+// that was under way included.
+func TestUndoAfterSecondInterrupt(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{}
+	if _, err := interrupted(t, m, p, from, to, "apply c c:2", "undo apply c c:1"); err == nil {
+		t.Fatal("the saga must stop")
+	}
+	rec, _ := Read(m)
+	m.log = nil
+	r := &Run{Plan: p, From: from, To: to, Exec: m, Record: rec}
+	if err := r.Undo(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"undo apply c c:1", "undo hook b b:2", "undo remove b", "undo apply a a:1"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("undone:\n got %v\nwant %v", m.log, want)
+	}
+	if got, _ := Read(m); got.State != Installed || got.Version != "1" || got.Saga != nil {
+		t.Errorf("record after undo: %+v", got)
+	}
+}
+
+// A process killed during an apply: the record names it under way, and the
+// saga continued undoes it with the rest of its unit.
+func TestResumeAfterCrashDuringApply(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{}
+	rec := &Record{Pack: "old", Version: "1", State: InProgress,
+		Saga: &Progress{Pack: "new", Version: "2", Done: []int{1, 2, 3, 4, 5}, Current: 6}}
+	if err := Write(m, rec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resumeWith(t, m, p, from, to); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"undo apply c c:1", "undo hook b b:2", "undo remove b",
+		"apply b b:2", "hook b b:2", "hook c c:2", "apply c c:2", "wait c"}
+	if !reflect.DeepEqual(m.log, want) {
+		t.Errorf("resumed steps:\n got %v\nwant %v", m.log, want)
+	}
+}
+
+// What a run rolled back is its own: the error and the record of a second
+// failure do not carry the first one's rollback.
+func TestRolledBackIsThisRun(t *testing.T) {
+	p, from, to := upgrade()
+	m := &memory{fail: "apply c c:2"}
+	if _, err := run(t, m, p, from, to); err == nil {
+		t.Fatal("the saga must fail")
+	}
+	_, err := resumeWith(t, m, p, from, to)
+	if err == nil {
+		t.Fatal("the saga must fail again")
+	}
+	if want := "rolled back: apply c, hook b init, remove b"; !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("error: %v\nwant it to end in %q", err, want)
+	}
+	rec, _ := Read(m)
+	if got := fmt.Sprint(rec.Saga.RolledBack); got != "[apply c hook b init remove b]" {
+		t.Errorf("rolled back: %s", got)
 	}
 }

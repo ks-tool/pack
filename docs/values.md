@@ -117,11 +117,23 @@ pack:
   component: kafka
   service: prod-kafka
   replicas: 3
+  # every key of the installation, as `me` describes it, plus scaled —
+  # whether its instances are replicas (a perInstance Secret key carries the
+  # index); reading it binds no peer and orders nothing
+  keys:
+    zookeeper: {service: prod-zookeeper, instances: [prod-zookeeper-0, …], replicas: 3, ports: {client: 2181}, scaled: true}
+    kafka: {…}
   # only while rendering a perInstance file, once per replica:
   instance: prod-kafka-0
   index: 0        # 0-based: the child's name suffix
   ordinal: 1      # 1-based: ZooKeeper's server.N and myid
 ```
+
+`keys` is for the one key that has to name every host before any of them
+runs — a CA issuing their certificates, a realm's plan of their principals.
+A peer could not: a key comes after the keys its roles are bound to, and
+those hosts need what it issues first. Anything that talks to a neighbour
+binds it as a peer.
 
 ## Credentials the tool creates
 

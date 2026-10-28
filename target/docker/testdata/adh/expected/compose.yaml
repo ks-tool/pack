@@ -9,6 +9,7 @@ services:
   hive-db:
     container_name: prod-hive-db
     cpu_shares: 2048
+    domainname: prod
     environment:
       POSTGRES_PASSWORD: ${PACK_SECRET_PROD_HIVE_DB_PASSWORD}
       POSTGRES_USER: postgres
@@ -17,7 +18,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 5432 || bash -c '</dev/tcp/127.0.0.1/5432'
+      - nc -z prod-hive-db 5432 || bash -c '</dev/tcp/prod-hive-db/5432'
       timeout: 3s
     hostname: prod-hive-db
     image: images/postgres:16.3
@@ -43,6 +44,7 @@ services:
     - min.insync.replicas=2
     container_name: prod-kafka-0
     cpu_shares: 8192
+    domainname: prod
     environment:
       KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
     healthcheck:
@@ -50,7 +52,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+      - nc -z prod-kafka-0 9092 || bash -c '</dev/tcp/prod-kafka-0/9092'
       timeout: 3s
     hostname: prod-kafka-0
     image: images/kafka:3.7.1
@@ -91,6 +93,7 @@ services:
     - min.insync.replicas=2
     container_name: prod-kafka-1
     cpu_shares: 8192
+    domainname: prod
     environment:
       KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
     healthcheck:
@@ -98,7 +101,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+      - nc -z prod-kafka-1 9092 || bash -c '</dev/tcp/prod-kafka-1/9092'
       timeout: 3s
     hostname: prod-kafka-1
     image: images/kafka:3.7.1
@@ -139,6 +142,7 @@ services:
     - min.insync.replicas=2
     container_name: prod-kafka-2
     cpu_shares: 8192
+    domainname: prod
     environment:
       KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
     healthcheck:
@@ -146,7 +150,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+      - nc -z prod-kafka-2 9092 || bash -c '</dev/tcp/prod-kafka-2/9092'
       timeout: 3s
     hostname: prod-kafka-2
     image: images/kafka:3.7.1
@@ -184,6 +188,7 @@ services:
   ranger-db:
     container_name: prod-ranger-db
     cpu_shares: 512
+    domainname: prod
     environment:
       POSTGRES_PASSWORD: ${PACK_SECRET_PROD_RANGER_DB_PASSWORD}
       POSTGRES_USER: postgres
@@ -192,7 +197,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 5432 || bash -c '</dev/tcp/127.0.0.1/5432'
+      - nc -z prod-ranger-db 5432 || bash -c '</dev/tcp/prod-ranger-db/5432'
       timeout: 3s
     hostname: prod-ranger-db
     image: images/postgres:16.3
@@ -215,6 +220,7 @@ services:
   zookeeper-0:
     container_name: prod-zookeeper-0
     cpu_shares: 512
+    domainname: prod
     environment:
       JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
     healthcheck:
@@ -222,7 +228,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+      - nc -z prod-zookeeper-0 2181 || bash -c '</dev/tcp/prod-zookeeper-0/2181'
       timeout: 3s
     hostname: prod-zookeeper-0
     image: images/zookeeper:3.9.2
@@ -257,6 +263,7 @@ services:
   zookeeper-1:
     container_name: prod-zookeeper-1
     cpu_shares: 512
+    domainname: prod
     environment:
       JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
     healthcheck:
@@ -264,7 +271,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+      - nc -z prod-zookeeper-1 2181 || bash -c '</dev/tcp/prod-zookeeper-1/2181'
       timeout: 3s
     hostname: prod-zookeeper-1
     image: images/zookeeper:3.9.2
@@ -299,6 +306,7 @@ services:
   zookeeper-2:
     container_name: prod-zookeeper-2
     cpu_shares: 512
+    domainname: prod
     environment:
       JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
     healthcheck:
@@ -306,7 +314,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+      - nc -z prod-zookeeper-2 2181 || bash -c '</dev/tcp/prod-zookeeper-2/2181'
       timeout: 3s
     hostname: prod-zookeeper-2
     image: images/zookeeper:3.9.2

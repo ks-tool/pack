@@ -1,86 +1,38 @@
 package k8s
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
+
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/ks-tool/pack/target"
 )
 
 const defaultTimeout = 10 * time.Minute
 
-// kubectl runs kubectl against the installation's cluster and namespace;
-// stdin, when set, is what -f - reads. Output goes to events line by line.
-func (in *Installation) kubectl(ctx context.Context, stdin []byte, events func(string), args ...string) ([]byte, error) {
-	var base []string
-	if in.kubeconfig != "" {
-		base = append(base, "--kubeconfig", in.kubeconfig)
-	}
-	if in.context != "" {
-		base = append(base, "--context", in.context)
-	}
-	base = append(base, "--namespace", in.namespace)
-	cmd := exec.CommandContext(ctx, target.Settings(in.settings).Get("kubectl", "kubectl"), append(base, args...)...)
-	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	if events != nil {
-		sc := bufio.NewScanner(bytes.NewReader(stdout.Bytes()))
-		for sc.Scan() {
-			if line := strings.TrimSpace(sc.Text()); line != "" {
-				events(line)
-			}
-		}
-	}
-	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return stdout.Bytes(), fmt.Errorf("kubectl %s: %s", strings.Join(args, " "), msg)
-	}
-	return stdout.Bytes(), nil
-}
-
-func (in *Installation) apply(ctx context.Context, objs []obj, events func(string)) error {
-	if len(objs) == 0 {
-		return nil
-	}
-	b, err := stream(objs)
-	if err != nil {
-		return err
-	}
-	_, err = in.kubectl(ctx, b, events, "apply", "--server-side", "--force-conflicts", "--field-manager=pack", "-f", "-")
-	return err
-}
-
 func (in *Installation) recordName() string { return "pack-" + in.installation }
 
 // ReadInstalled reads the record pack keeps in the namespace: the ConfigMap
 // pack-<installation>.
 func (in *Installation) ReadInstalled() ([]byte, bool, error) {
-	out, err := in.kubectl(context.Background(), nil, nil, "get", "configmap", in.recordName(), "--ignore-not-found", "-o", "json")
+	c, err := in.cluster()
 	if err != nil {
 		return nil, false, err
 	}
-	if len(bytes.TrimSpace(out)) == 0 {
+	cm := &corev1.ConfigMap{}
+	err = c.Get(context.Background(), client.ObjectKey{Namespace: in.namespace, Name: in.recordName()}, cm)
+	if apierrors.IsNotFound(err) {
 		return nil, false, nil
 	}
-	var cm struct {
-		Data map[string]string `json:"data"`
-	}
-	if err := json.Unmarshal(out, &cm); err != nil {
-		return nil, false, err
+	if err != nil {
+		return nil, false, fmt.Errorf("the record %s: %w", in.recordName(), err)
 	}
 	rec, ok := cm.Data["record.json"]
 	return []byte(rec), ok, nil
@@ -118,18 +70,18 @@ func (in *Installation) Execute(ctx context.Context, st target.Step, events func
 		if st.Unit != nil && st.Unit.RestartPolicy == "Never" {
 			return in.waitJob(ctx, svc, timeout, events)
 		}
-		_, err := in.kubectl(ctx, nil, events, "rollout", "status", "statefulset/"+svc, "--timeout="+timeout.String())
-		return err
+		return in.rollout(ctx, svc, timeout, events)
 	case "stop":
-		if _, err := in.kubectl(ctx, nil, events, "scale", "statefulset/"+svc, "--replicas=0"); err != nil {
+		if err := in.scaleToZero(ctx, svc, events); err != nil {
 			return err
 		}
-		_, err := in.kubectl(ctx, nil, events, "wait", "--for=delete", "pod", "-l", selector(in.labels(st.Key)), "--timeout="+timeout.String())
-		return err
+		c, err := in.cluster()
+		if err != nil {
+			return err
+		}
+		return in.gone(ctx, c, selector(in.labels(st.Key)), []client.ObjectList{&corev1.PodList{}}, timeout)
 	case "remove":
-		_, err := in.kubectl(ctx, nil, events, "delete", "statefulset,job,service,secret",
-			"-l", selector(in.labels(st.Key))+",pack.horchestra.io/part in (workload,config,hook)", "--ignore-not-found", "--wait=true")
-		return err
+		return in.remove(ctx, selector(in.labels(st.Key))+",pack.horchestra.io/part in (workload,config,hook)", removed(), timeout, events)
 	case "hook":
 		return in.hook(ctx, st, timeout, events)
 	}
@@ -193,45 +145,54 @@ func (in *Installation) hook(ctx context.Context, st target.Step, timeout time.D
 	}
 	job := obj{"apiVersion": "batch/v1", "kind": "Job", "metadata": in.meta(name, st.Key, "hook"),
 		"spec": obj{"backoffLimit": 0, "template": obj{"metadata": obj{"labels": in.labels(st.Key)}, "spec": pod}}}
-	_, _ = in.kubectl(ctx, nil, nil, "delete", "job/"+name, "--ignore-not-found", "--wait=true")
+	if err := in.deleteJob(ctx, name, true, timeout); err != nil {
+		return err
+	}
 	if err := in.apply(ctx, []obj{job}, events); err != nil {
 		return err
 	}
 	if err := in.waitJob(ctx, name, timeout, events); err != nil {
 		return fmt.Errorf("hook %s: %w", st.Name, err)
 	}
-	_, _ = in.kubectl(ctx, nil, nil, "delete", "job/"+name, "--ignore-not-found")
-	return nil
+	return in.deleteJob(ctx, name, false, 0)
 }
 
-// waitJob waits until a Job succeeds or fails — kubectl wait sees only one
-// condition, and a failed Job never completes — and tells its log either way.
+// waitJob waits until a Job succeeds or fails, and tells its log either way.
 func (in *Installation) waitJob(ctx context.Context, name string, timeout time.Duration, events func(string)) error {
+	c, err := in.cluster()
+	if err != nil {
+		return err
+	}
 	deadline := time.Now().Add(timeout)
 	var verdict error
 	for {
-		out, err := in.kubectl(ctx, nil, nil, "get", "job/"+name, "-o", "jsonpath={.status.succeeded},{.status.failed}")
-		if err == nil {
-			ok, failed, _ := strings.Cut(strings.TrimSpace(string(out)), ",")
-			if ok != "" && ok != "0" {
+		job := &batchv1.Job{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: in.namespace, Name: name}, job); err == nil {
+			if job.Status.Succeeded > 0 {
 				break
 			}
-			if failed != "" && failed != "0" {
+			if job.Status.Failed > 0 {
 				verdict = fmt.Errorf("job %s failed", name)
 				break
 			}
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return ctx.Err() // cut short: no log, at once
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			verdict = fmt.Errorf("job %s did not finish within %s", name, timeout)
 			break
 		}
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+		case <-time.After(poll):
+		}
 	}
 	// the log, after the verdict and on a context of its own: a step that ran
 	// out of time still says what its pod did
 	lctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	logs, _ := in.kubectl(lctx, nil, nil, "logs", "job/"+name, "--tail=50")
+	logs, _ := in.jobLogs(lctx, name)
 	for l := range strings.SplitSeq(strings.TrimSpace(string(logs)), "\n") {
 		if l != "" {
 			events(name + ": " + l)
@@ -242,7 +203,7 @@ func (in *Installation) waitJob(ctx context.Context, name string, timeout time.D
 
 // resolver reads ${secret:<name>/<key>} from the cluster's Secrets.
 func (in *Installation) resolver(ctx context.Context) func(string) (string, error) {
-	cache := map[string]map[string]string{}
+	cache := map[string]map[string][]byte{}
 	return func(ref string) (string, error) {
 		name, key, ok := strings.Cut(ref, "/")
 		if !ok {
@@ -250,28 +211,22 @@ func (in *Installation) resolver(ctx context.Context) func(string) (string, erro
 		}
 		data, ok := cache[name]
 		if !ok {
-			out, err := in.kubectl(ctx, nil, nil, "get", "secret", name, "-o", "json")
+			c, err := in.cluster()
 			if err != nil {
 				return "", err
 			}
-			var s struct {
-				Data map[string]string `json:"data"`
-			}
-			if err := json.Unmarshal(out, &s); err != nil {
-				return "", err
+			s := &corev1.Secret{}
+			if err := c.Get(ctx, client.ObjectKey{Namespace: in.namespace, Name: name}, s); err != nil {
+				return "", fmt.Errorf("secret %s: %w", name, err)
 			}
 			data = s.Data
 			cache[name] = data
 		}
-		enc, ok := data[key]
+		v, ok := data[key]
 		if !ok {
 			return "", fmt.Errorf("secret %s has no key %s", name, key)
 		}
-		b, err := base64.StdEncoding.DecodeString(enc)
-		if err != nil {
-			return "", err
-		}
-		return string(b), nil
+		return string(v), nil
 	}
 }
 

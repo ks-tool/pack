@@ -1,12 +1,9 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"github.com/spf13/cobra"
-	"os"
-	"os/signal"
 	"time"
 
 	"github.com/ks-tool/pack/bundle"
@@ -47,8 +44,6 @@ func newRollbackCmd() *cobra.Command {
 		if rec == nil || (len(rec.Pack) == 0 && !rec.Unfinished()) {
 			return fmt.Errorf("nothing is installed as %s on %s", *name, tf.target())
 		}
-		sctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		defer stop()
 		events := func(s string) { fmt.Println(s) }
 
 		if rec.Unfinished() {
@@ -65,13 +60,20 @@ func newRollbackCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("undoing the saga towards %s %s (%s): steps in effect %v\n", sg.Pack, sg.Version, rec.State, sg.Done)
+			underWay := ""
+			if sg.Current > 0 {
+				underWay = fmt.Sprintf(", step %d under way", sg.Current)
+			}
+			fmt.Printf("undoing the saga towards %s %s (%s): steps in effect %v%s\n", sg.Pack, sg.Version, rec.State, sg.Done, underWay)
 			if *dryRun {
 				fmt.Print(p.Text())
 				return nil
 			}
+			// undoing is rolling back already: the first interrupt stops it
+			soft, _, stop := interrupts(sayStopping, "")
+			defer stop()
 			run := &saga.Run{Plan: p, From: fromRel, To: toRel, Exec: x, Record: rec, Events: events}
-			if err := run.Undo(sctx); err != nil {
+			if err := run.Undo(soft); err != nil {
 				return err
 			}
 			if len(rec.Pack) == 0 {
@@ -104,8 +106,10 @@ func newRollbackCmd() *cobra.Command {
 		}
 		rec.Saga = &saga.Progress{Pack: prev.Pack, Version: prev.Version, Values: prev.Values, Given: prev.Values,
 			Platform: prev.Platform, Started: time.Now().UTC()}
-		run := &saga.Run{Plan: p, From: curRel, To: prevRel, Exec: x, Record: rec, Events: events}
-		if err := run.Execute(sctx); err != nil {
+		soft, hard, stop := interrupts(sayRollingBack, sayStopping)
+		defer stop()
+		run := &saga.Run{Plan: p, From: curRel, To: prevRel, Exec: x, Record: rec, Events: events, Interrupt: soft}
+		if err := run.Execute(hard); err != nil {
 			return err
 		}
 		fmt.Printf("back to %s %s\n", prev.Pack, prev.Version)

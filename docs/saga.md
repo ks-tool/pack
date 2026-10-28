@@ -217,7 +217,10 @@ target without it renders (`pack template`) and refuses `apply`.
    provisioned for the key. The provider streams what it does; the last
    event says whether the step succeeded. A hook's `timeout` bounds it.
 4. After every step pack writes the record (`WriteInstalled`), so a saga
-   cut short is visible to whoever looks next.
+   cut short is visible to whoever looks next. The record also names the
+   step under way: an `apply` or `remove` that was running when the process
+   died or a rollback was stopped may have half-happened, and is undone as
+   performed.
 5. **A failed step** rolls its unit back, in reverse plan order, until the
    rollback policy stops it: a hook that ran is compensated (one without
    `compensate` is left as it is); an `apply` is undone by applying the
@@ -230,7 +233,19 @@ target without it renders (`pack template`) and refuses `apply`.
    if it was an `apply` or a `remove` — it may have half-happened — and
    never if it was a hook. Units behind a savepoint stay.
 6. The record says `installed` with the new version, or `failed` with the
-   step, the error and what was undone.
+   step, the error and what this run undid.
+
+   **An interrupt** (Ctrl-C, SIGTERM) is a failure of the step under way:
+   the step is cut short — or, between steps, the next is not begun — and
+   its unit is rolled back as in 5. A second interrupt stops at once, the
+   rollback too: the record keeps what is in effect and the step under way,
+   and 7 or 8 takes it from there. A third ends pack as it would any
+   program. The provider runs in a process group of its own, so the
+   terminal's interrupt reaches pack only, and the provider is there for
+   the rollback; a step's context reaches its `docker` or its
+   calls to the API server.
+   `pack rollback` of an unfinished saga is undoing already: one interrupt
+   stops it.
 7. **`pack apply` always starts from a savepoint.** A saga the record shows
    unfinished — failed, or cut short with no rollback — is continued by the
    same command: what of the unit it stopped in is still in effect is

@@ -203,14 +203,40 @@ func (in *Installation) compose(cs []container) obj {
 	services, secrets, volumes := obj{}, obj{}, obj{}
 	for _, c := range cs {
 		s := obj{"image": c.Image, "container_name": c.Name, "hostname": c.Name, "restart": c.Restart, "labels": toAny(c.Labels)}
+		s["hostname"] = c.Hostname
+		if c.Domain != "" {
+			s["domainname"] = c.Domain
+		}
+		if c.User != "" {
+			s["user"] = c.User
+		}
+		if len(c.DNS) > 0 {
+			s["dns"] = toList(c.DNS)
+		}
+		if len(c.GroupAdd) > 0 {
+			s["group_add"] = toList(c.GroupAdd)
+		}
+		if len(c.SecurityOpt) > 0 {
+			s["security_opt"] = toList(c.SecurityOpt)
+		}
+		if len(c.Sysctls) > 0 {
+			s["sysctls"] = toAny(c.Sysctls)
+		}
 		if len(c.Entrypoint) > 0 {
 			s["entrypoint"] = escapeList(c.Entrypoint)
 		}
 		if len(c.Cmd) > 0 {
 			s["command"] = escapeList(c.Cmd)
 		}
-		if len(c.Aliases) > 0 {
-			s["networks"] = obj{"default": obj{"aliases": toList(c.Aliases)}}
+		if len(c.Aliases) > 0 || c.IP != "" {
+			n := obj{}
+			if len(c.Aliases) > 0 {
+				n["aliases"] = toList(c.Aliases)
+			}
+			if c.IP != "" {
+				n["ipv4_address"] = c.IP
+			}
+			s["networks"] = obj{"default": n}
 		}
 		if len(c.Env) > 0 {
 			env := obj{}
@@ -246,6 +272,21 @@ func (in *Installation) compose(cs []container) obj {
 			vols = append(vols, obj{"type": "volume", "source": v.Source, "target": v.Target})
 			volumes[v.Source] = obj{"name": v.Source}
 		}
+		for _, v := range c.Shared {
+			m := obj{"type": "volume", "source": v.Volume, "target": v.Target, "read_only": v.ReadOnly}
+			if v.Subpath != "" {
+				m["volume"] = obj{"subpath": v.Subpath}
+			}
+			vols = append(vols, m)
+			volumes[v.Volume] = obj{"name": v.Volume}
+		}
+		for _, b := range c.Binds {
+			spec := b.Source + ":" + b.Target
+			if b.Options != "" {
+				spec += ":" + b.Options
+			}
+			vols = append(vols, spec)
+		}
 		for _, l := range c.Libraries {
 			vols = append(vols, obj{"type": "image", "source": l.Source, "target": l.Target, "read_only": true})
 		}
@@ -266,7 +307,15 @@ func (in *Installation) compose(cs []container) obj {
 		}
 		services[strings.TrimPrefix(c.Name, in.installation+"-")] = s
 	}
-	doc := obj{"name": in.installation, "services": services, "networks": obj{"default": obj{"name": in.network}}}
+	network := obj{"name": in.network}
+	if sub := in.settings.Get("network_subnet", ""); sub != "" {
+		cfg := obj{"subnet": sub}
+		if g := in.settings.Get("network_gateway", ""); g != "" {
+			cfg["gateway"] = g
+		}
+		network["ipam"] = obj{"config": []any{cfg}}
+	}
+	doc := obj{"name": in.installation, "services": services, "networks": obj{"default": network}}
 	if len(secrets) > 0 {
 		doc["secrets"] = secrets
 	}

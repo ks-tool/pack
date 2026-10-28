@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"slices"
@@ -65,7 +66,16 @@ func (in *Installation) Execute(ctx context.Context, st target.Step, events func
 		if err != nil {
 			return err
 		}
-		return in.wait(ctx, cs, st.Unit.RestartPolicy == "Never", timeout, events)
+		completes := st.Unit.RestartPolicy == "Never"
+		if err := in.wait(ctx, cs, completes, timeout, events); err != nil || !completes {
+			return err
+		}
+		for _, c := range cs {
+			if err := in.collect(ctx, c, events); err != nil {
+				return err
+			}
+		}
+		return nil
 	case "stop":
 		for _, e := range in.engines {
 			names, err := e.lines(ctx, append([]string{"ps", "--format", "{{.Names}}"}, in.filters(labelKey+"="+st.Key, labelPart+"=workload")...)...)
@@ -171,7 +181,14 @@ func (in *Installation) ensureNetwork(ctx context.Context, e *engine) error {
 	if _, err := e.docker(ctx, nil, nil, nil, "network", "inspect", in.network); err == nil {
 		return nil
 	}
-	_, err := e.docker(ctx, nil, nil, nil, "network", "create", "--label", labelInstallation+"="+in.installation, in.network)
+	a := []string{"network", "create", "--label", labelInstallation + "=" + in.installation}
+	if s := in.settings.Get("network_subnet", ""); s != "" {
+		a = append(a, "--subnet", s)
+	}
+	if g := in.settings.Get("network_gateway", ""); g != "" {
+		a = append(a, "--gateway", g)
+	}
+	_, err := e.docker(ctx, nil, nil, nil, append(a, in.network)...)
 	return err
 }
 
@@ -187,6 +204,8 @@ type materialized struct {
 	files   []byte
 	filesV  string
 	hash    string
+	// publish: it runs to completion and gets the key's publish volume
+	publish bool
 }
 
 func (in *Installation) materialize(c container, resolve func(string) (string, error)) (*materialized, error) {
@@ -238,7 +257,14 @@ func (in *Installation) materialize(c container, resolve func(string) (string, e
 		m.filesV = c.Name + "-files-" + hex.EncodeToString(fs[:6])
 	}
 
-	a := []string{"--name", c.Name, "--hostname", c.Name, "--network", in.network, "--restart", c.Restart}
+	a := []string{"--name", c.Name, "--hostname", c.Hostname, "--network", in.network, "--restart", c.Restart}
+	if c.Domain != "" {
+		// the container calls itself <hostname>.<domain>: on one engine by
+		// default <container>.<network>, the name the engine's resolver gives
+		// it to the others
+		a = append(a, "--domainname", c.Domain)
+	}
+	a = append(a, in.runtimeArgs(c)...)
 	for _, al := range c.Aliases {
 		a = append(a, "--network-alias", al)
 	}
@@ -262,6 +288,10 @@ func (in *Installation) materialize(c container, resolve func(string) (string, e
 	for _, v := range c.Volumes {
 		a = append(a, "--mount", "type=volume,source="+v.Source+",target="+v.Target)
 		m.volumes = append(m.volumes, v.Source)
+	}
+	if c.Completes {
+		a = append(a, "--mount", "type=volume,source="+in.publishVolume(c.Key)+",target="+publishMount)
+		m.publish = true
 	}
 	for _, rel := range mounts {
 		a = append(a, "--mount", "type=volume,source="+m.filesV+",target=/"+rel+",volume-subpath="+rel+",readonly")
@@ -322,6 +352,14 @@ func (in *Installation) run(ctx context.Context, m *materialized, events func(st
 			"--label", labelKey+"="+c.Key, "--label", labelPart+"=data", v); err != nil {
 			return err
 		}
+	}
+	if m.publish {
+		if err := in.ensurePublish(ctx, c); err != nil {
+			return err
+		}
+	}
+	if err := in.ensureShared(ctx, c); err != nil {
+		return err
 	}
 	if m.files != nil {
 		if _, err := e.docker(ctx, nil, nil, nil, "volume", "create", "--label", labelInstallation+"="+in.installation,
@@ -385,6 +423,8 @@ func (in *Installation) wait(ctx context.Context, cs []container, completes bool
 			switch {
 			case completes && status == "exited" && code == "0":
 				ready++
+			case completes && (status == "exited" || status == "dead") && c.Restart == "on-failure" && status != "dead":
+				// the engine runs it again: the run that exits 0 is waited for
 			case completes && (status == "exited" || status == "dead"):
 				failed = fmt.Sprintf("%s%s exited %s", c.Engine.prefix(), c.Name, code)
 			case !completes && status == "running" && (health == "-" || health == "healthy"):
@@ -398,6 +438,9 @@ func (in *Installation) wait(ctx context.Context, cs []container, completes bool
 		if ready == len(cs) {
 			break
 		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return ctx.Err() // cut short: no logs, at once
+		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			var names []string
 			for _, c := range cs {
@@ -406,7 +449,10 @@ func (in *Installation) wait(ctx context.Context, cs []container, completes bool
 			verdict = fmt.Errorf("%s not ready within %s", strings.Join(names, ", "), timeout)
 			break
 		}
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
 	}
 	if verdict != nil || completes {
 		in.logs(cs, events)
@@ -434,7 +480,9 @@ func (in *Installation) logs(cs []container, events func(string)) {
 
 // hook runs a hook as a container of its own on replica 0's host: replica 0
 // of the key — its files, env and libraries — with the hook's image and
-// command; an exclusive hook gets replica 0's volumes.
+// command; an exclusive hook gets replica 0's volumes, and so does a
+// preInstall hook: it runs before the first apply with the component's
+// still empty volumes (hdfs namenode -format), nothing else has them yet.
 func (in *Installation) hook(ctx context.Context, st target.Step, timeout time.Duration, events func(string)) error {
 	if st.Unit == nil {
 		return fmt.Errorf("hook %s: no unit", st.Name)
@@ -451,9 +499,11 @@ func (in *Installation) hook(ctx context.Context, st target.Step, timeout time.D
 		name = fmt.Sprintf("%s-undo-%s-%d", in.service(st.Key), st.Name, st.N)
 	}
 	c.Name, c.Part, c.Image, c.Entrypoint, c.Cmd = containerName(name), "hook", st.Image, st.Command, nil
-	c.Aliases, c.Publish, c.Health, c.Restart = nil, nil, nil, "no"
+	c.Aliases, c.Publish, c.Health, c.Restart, c.Completes = nil, nil, nil, "no", true
+	// a hook is not the key's instance: no fixed address, its own hostname
+	c.IP, c.Hostname = "", c.Name
 	c.Labels[labelPart] = "hook"
-	if !st.Exclusive {
+	if !st.Exclusive && st.Phase != "preInstall" {
 		c.Volumes = nil
 	}
 	m, err := in.materialize(c, in.resolver(ctx, st.Credentials))
@@ -466,6 +516,9 @@ func (in *Installation) hook(ctx context.Context, st target.Step, timeout time.D
 		return err
 	}
 	if err := in.wait(ctx, []container{c}, true, timeout, events); err != nil {
+		return fmt.Errorf("hook %s: %w", st.Name, err)
+	}
+	if err := in.collect(ctx, c, events); err != nil {
 		return fmt.Errorf("hook %s: %w", st.Name, err)
 	}
 	_, _ = e.docker(ctx, nil, nil, nil, "rm", "--force", "--volumes", c.Name)

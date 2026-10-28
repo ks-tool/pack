@@ -48,6 +48,11 @@ const (
 // Serve is the whole main of a provider binary: it listens where pack told
 // it, serves t to whoever has the token, and returns when pack closes its
 // stdin.
+// MaxMessage bounds one message between pack and a provider: a release
+// carries the files of the pack — an archive of data among them — far
+// beyond gRPC's default 4 MiB.
+const MaxMessage = 2<<30 - 1
+
 func Serve(t target.Target) error {
 	addr := os.Getenv(EnvAddress)
 	if len(addr) == 0 {
@@ -70,7 +75,7 @@ func Serve(t target.Target) error {
 	if err != nil {
 		return err
 	}
-	s := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
+	s := grpc.NewServer(grpc.MaxRecvMsgSize(MaxMessage), grpc.MaxSendMsgSize(MaxMessage), grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
 		if err := authorized(ctx, token); err != nil {
 			return nil, err
 		}

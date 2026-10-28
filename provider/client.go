@@ -173,6 +173,7 @@ func StartImage(name, image string) (*Plugin, error) {
 // answers, it exits, or the time is up.
 func (p *Plugin) start(addr, token string, within time.Duration) (*Plugin, error) {
 	p.cmd.Stdout = os.Stderr // a provider has nothing to say on pack's stdout
+	detach(p.cmd)
 	p.cmd.Stderr = os.Stderr
 	var err error
 	if p.stdin, err = p.cmd.StdinPipe(); err != nil {
@@ -194,7 +195,8 @@ func (p *Plugin) start(addr, token string, within time.Duration) (*Plugin, error
 	// the provider is starting: try often, not after gRPC's usual second
 	connect := grpc.ConnectParams{Backoff: backoff.Config{BaseDelay: 20 * time.Millisecond, Multiplier: 1.5, MaxDelay: time.Second}, MinConnectTimeout: time.Second}
 	if p.conn, err = grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithConnectParams(connect),
-		grpc.WithUnaryInterceptor(auth), grpc.WithStreamInterceptor(authStream)); err != nil {
+		grpc.WithUnaryInterceptor(auth), grpc.WithStreamInterceptor(authStream),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxMessage), grpc.MaxCallSendMsgSize(MaxMessage))); err != nil {
 		p.Close()
 		return nil, err
 	}

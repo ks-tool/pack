@@ -5,7 +5,7 @@ containers:
     JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
   healthcheck:
   - CMD-SHELL
-  - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+  - nc -z prod-zookeeper-0 2181 || bash -c '</dev/tcp/prod-zookeeper-0/2181'
   image: images/zookeeper:3.9.2
   labels:
     pack.horchestra.io/installation: prod
@@ -34,7 +34,7 @@ containers:
     JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
   healthcheck:
   - CMD-SHELL
-  - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+  - nc -z prod-zookeeper-1 2181 || bash -c '</dev/tcp/prod-zookeeper-1/2181'
   image: images/zookeeper:3.9.2
   labels:
     pack.horchestra.io/installation: prod
@@ -63,7 +63,7 @@ containers:
     JVMFLAGS: -Xmx768m -Xms768m -XX:+UseG1GC
   healthcheck:
   - CMD-SHELL
-  - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+  - nc -z prod-zookeeper-2 2181 || bash -c '</dev/tcp/prod-zookeeper-2/2181'
   image: images/zookeeper:3.9.2
   labels:
     pack.horchestra.io/installation: prod
@@ -95,7 +95,7 @@ containers:
     KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
   healthcheck:
   - CMD-SHELL
-  - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+  - nc -z prod-kafka-0 9092 || bash -c '</dev/tcp/prod-kafka-0/9092'
   image: images/kafka:3.7.1
   labels:
     pack.horchestra.io/installation: prod
@@ -131,7 +131,7 @@ containers:
     KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
   healthcheck:
   - CMD-SHELL
-  - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+  - nc -z prod-kafka-1 9092 || bash -c '</dev/tcp/prod-kafka-1/9092'
   image: images/kafka:3.7.1
   labels:
     pack.horchestra.io/installation: prod
@@ -167,7 +167,7 @@ containers:
     KAFKA_HEAP_OPTS: -Xmx24576m -Xms24576m -XX:+UseG1GC
   healthcheck:
   - CMD-SHELL
-  - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+  - nc -z prod-kafka-2 9092 || bash -c '</dev/tcp/prod-kafka-2/9092'
   image: images/kafka:3.7.1
   labels:
     pack.horchestra.io/installation: prod
@@ -199,7 +199,7 @@ containers:
     POSTGRES_USER: postgres
   healthcheck:
   - CMD-SHELL
-  - nc -z 127.0.0.1 5432 || bash -c '</dev/tcp/127.0.0.1/5432'
+  - nc -z prod-ranger-db 5432 || bash -c '</dev/tcp/prod-ranger-db/5432'
   image: images/postgres:16.3
   labels:
     pack.horchestra.io/installation: prod
@@ -223,7 +223,7 @@ containers:
     POSTGRES_USER: postgres
   healthcheck:
   - CMD-SHELL
-  - nc -z 127.0.0.1 5432 || bash -c '</dev/tcp/127.0.0.1/5432'
+  - nc -z prod-hive-db 5432 || bash -c '</dev/tcp/prod-hive-db/5432'
   image: images/postgres:16.3
   labels:
     pack.horchestra.io/installation: prod

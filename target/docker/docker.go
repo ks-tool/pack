@@ -46,7 +46,7 @@ func (Target) Name() string           { return "docker" }
 func (Target) Capabilities() []string { return []string{target.CapExecute} }
 
 func (Target) Configure(installation string, settings target.Settings) (target.Installation, error) {
-	if err := settings.Check("docker", []string{"host", "context", "docker", "network", "state", "compose"},
+	if err := settings.Check("docker", []string{"host", "context", "docker", "network", "network_subnet", "network_gateway", "state", "compose"},
 		[]string{"hosts_", "secrets_", "platform_"}); err != nil {
 		return nil, err
 	}
@@ -127,6 +127,9 @@ func (in *Installation) PlatformSchema() []byte { return platformSchema }
 // engine an alias of every replica.
 func (in *Installation) service(key string) string { return in.installation + "-" + key }
 
+// fqdn is a container's name on one engine: <container>.<network>.
+func (in *Installation) fqdn(name string) string { return name + "." + in.network }
+
 // Resolve the key. On one engine it is <installation>-<key> on the
 // installation's network, replicas <service>-<i> each reached by its name.
 // Across hosts it runs on the hosts its platform names, instance i on the
@@ -140,7 +143,7 @@ func (in *Installation) Resolve(key, scale string, platform map[string]any, inst
 	if err != nil {
 		return nil, err
 	}
-	svc := in.service(key)
+	svc := in.serviceOf(key, own)
 	hosts := hostsOf(own["hosts"])
 	n, explicit := toInt(own["replicas"])
 	pub, _ := own["publish"].(map[string]any)
@@ -152,14 +155,21 @@ func (in *Installation) Resolve(key, scale string, platform map[string]any, inst
 		if !explicit {
 			n, own["replicas"] = 1, int64(1)
 		}
-		res := &render.Resolved{Service: svc, Address: svc, Platform: own}
+		// a neighbour reaches an instance at <container>.<network>: what the
+		// engine's resolver answers a reverse query with, and what the
+		// container calls itself (--domainname) — one canonical name, which
+		// Kerberos turns into the principal on both ends
+		res := &render.Resolved{Service: svc, Address: in.fqdn(svc), Platform: own}
+		if h := strOf(own, "hostname"); h != "" && strings.Contains(h, ".") {
+			res.Address = h
+		}
 		if scale == "replicas" {
 			if n > 1 && len(pub) > 0 {
 				return nil, fmt.Errorf("%s: publish binds a host port, which one container of %d replicas can have", key, n)
 			}
 			for i := range n {
 				name := fmt.Sprintf("%s-%d", svc, i)
-				res.Instances = append(res.Instances, render.Instance{Name: name, Address: name})
+				res.Instances = append(res.Instances, render.Instance{Name: name, Address: in.fqdn(name)})
 			}
 		}
 		return res, nil
@@ -200,7 +210,7 @@ func (in *Installation) Resolve(key, scale string, platform map[string]any, inst
 
 func (in *Installation) platformOf(key string, platform map[string]any, installed bool) (map[string]any, error) {
 	own := map[string]any{}
-	for _, k := range []string{"replicas", "hosts", "publish"} {
+	for _, k := range append([]string{"replicas", "hosts", "publish"}, runtimeProps...) {
 		if v, ok := platform[k]; ok {
 			own[k] = v
 		}
@@ -240,8 +250,9 @@ func (in *Installation) platformOf(key string, platform map[string]any, installe
 			}
 			pub[strings.TrimPrefix(rest, "publish_")] = n
 			own["publish"] = pub
+		case runtimeSetting(own, rest, v):
 		default:
-			return nil, fmt.Errorf("%s: the docker platform has replicas, hosts, publish", k)
+			return nil, fmt.Errorf("%s: the docker platform has replicas, hosts, publish, %s", k, strings.Join(runtimeProps, ", "))
 		}
 	}
 	return own, nil

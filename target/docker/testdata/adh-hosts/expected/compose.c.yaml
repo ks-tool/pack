@@ -19,7 +19,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 9092 || bash -c '</dev/tcp/127.0.0.1/9092'
+      - nc -z prod-kafka-2 9092 || bash -c '</dev/tcp/prod-kafka-2/9092'
       timeout: 3s
     hostname: prod-kafka-2
     image: images/kafka:3.7.1
@@ -63,7 +63,7 @@ services:
       retries: 3
       test:
       - CMD-SHELL
-      - nc -z 127.0.0.1 2181 || bash -c '</dev/tcp/127.0.0.1/2181'
+      - nc -z prod-zookeeper-2 2181 || bash -c '</dev/tcp/prod-zookeeper-2/2181'
       timeout: 3s
     hostname: prod-zookeeper-2
     image: images/zookeeper:3.9.2

@@ -3,17 +3,95 @@
   "$id": "urn:pack:platform:docker",
   "type": "object",
   "properties": {
-    "replicas": {"type": "integer", "minimum": 0},
+    "replicas": {
+      "type": "integer",
+      "minimum": 0
+    },
     "hosts": {
       "description": "The hosts of the environment the key runs on, instance i on the i-th.",
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "uniqueItems": true
     },
     "publish": {
       "description": "Host ports by port name, on one engine: the port the engine's host listens on for the container's.",
       "type": "object",
-      "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 65535}
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535
+      }
+    },
+    "name": {
+      "description": "The container's name instead of <installation>-<key>; a replica appends -<i>.",
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+    },
+    "hostname": {
+      "description": "What the container calls itself; dotted, it is split as compose does and is the key's address.",
+      "type": "string"
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "More names on the installation's network."
+    },
+    "ip": {
+      "description": "A fixed IPv4 address on the network (network.subnet holds it).",
+      "type": "string"
+    },
+    "dns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Name servers."
+    },
+    "user": {
+      "description": "docker run --user.",
+      "type": "string"
+    },
+    "groupAdd": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "docker run --group-add."
+    },
+    "sysctls": {
+      "description": "docker run --sysctl, by name.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "securityOpt": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "docker run --security-opt."
+    },
+    "mounts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "<source>:<target>[:<options>]: a host path (starting with /), or a volume of the installation the keys share, <volume>[/<subpath>]."
+    },
+    "restart": {
+      "description": "The engine's restart policy instead of the pack's.",
+      "type": "string",
+      "enum": [
+        "no",
+        "on-failure",
+        "unless-stopped",
+        "always"
+      ]
     }
   }
 }

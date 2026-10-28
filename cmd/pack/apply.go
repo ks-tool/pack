@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -43,6 +41,7 @@ its last savepoint (--from-start: from its first step). The target must perform 
 	dryRun := fs.Bool("dry-run", false, "print the plan against what is installed, perform nothing")
 	fromStart := fs.Bool("from-start", false, "run an unfinished saga from its first step instead of continuing from its last savepoint, or start a new one over it")
 	provider := fs.String("secretProvider", "", "where the credentials the tool creates come from: generate | env | file:<dir>")
+	outDir := fs.StringP("output", "o", "", "before the saga, write the target's files of the version to install here, as pack template -o does (docker: containers.yaml, files/, the compose files)")
 	var secrets, skip multiFlag
 	fs.Var(&secrets, "secret", "a password leaf to provision from the provider, as a values pointer; repeatable")
 	fs.Var(&skip, "skip", "exclude a key from the install; repeatable")
@@ -126,6 +125,15 @@ its last savepoint (--from-start: from its first step). The target must perform 
 		if err != nil {
 			return err
 		}
+		if len(*outDir) > 0 {
+			out, err := inst.Convert(toRel, credentials)
+			if err != nil {
+				return err
+			}
+			if err := writeOutput(*outDir, out, tf.target()); err != nil {
+				return err
+			}
+		}
 
 		p, err := plan.Build(plan.Input{From: fromB, To: toB, FromOut: fromRel, ToOut: toRel, Policy: policy})
 		if err != nil {
@@ -145,11 +153,11 @@ its last savepoint (--from-start: from its first step). The target must perform 
 			rec.Saga = &saga.Progress{Pack: recordRef(*packRef), Version: toB.Version, Values: v, Given: given,
 				Platform: toRel.Platforms, Policy: policy, Started: time.Now().UTC()}
 		}
-		sctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		soft, hard, stop := interrupts(sayRollingBack, sayStopping)
 		defer stop()
 		run := &saga.Run{Plan: p, From: fromRel, To: toRel, Credentials: credentials, Exec: x, Record: rec,
-			Events: func(s string) { fmt.Println(s) }}
-		if err := run.Execute(sctx); err != nil {
+			Events: func(s string) { fmt.Println(s) }, Interrupt: soft}
+		if err := run.Execute(hard); err != nil {
 			return err
 		}
 		fmt.Println(strings.Join(strings.Fields(fmt.Sprintf("installed %s %s as %s on %s", toB.Name, toB.Version, *name, tf.target())), " "))

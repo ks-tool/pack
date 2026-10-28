@@ -1,7 +1,8 @@
 // pack-provider-k8s is Kubernetes as a target, a program of its own: pack
 // starts it, and it answers over the provider protocol what a key's platform
 // means on the cluster, what a release becomes there — StatefulSets,
-// Services, Secrets — and performs each step of a saga with kubectl.
+// Services, Secrets — and performs each step of a saga against the API
+// server with client-go.
 package main
 
 import (

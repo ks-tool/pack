@@ -83,7 +83,8 @@ Version constraints: a comma- or space-separated conjunction of
 
 The subtree, whole, becomes the file. `format` ∈ `json`, `yaml`,
 `properties`, `env`, `shell`, `ini`, `flagfile`, `lines`, `hadoop-xml`,
-`text`, `template` — or `secret`, which renders nothing: the leaf is
+`text`, `template`, `raw` (the component's file `template` names, byte for
+byte, no template language: a script, a dump, an archive) — or `secret`, which renders nothing: the leaf is
 `format: password` and the referenced Secret's key is mounted at the path as
 it is. `template`/`parseAs` only with `template`; `mode` octal;
 `perInstance` needs `x-pack.scale: replicas`.

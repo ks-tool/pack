@@ -105,7 +105,11 @@ type Arg struct {
 }
 
 // Formats every emitter knows, in the order the spec lists them.
-var Formats = []string{"json", "yaml", "properties", "env", "shell", "ini", "flagfile", "lines", "hadoop-xml", "text", "template"}
+var Formats = []string{"json", "yaml", "properties", "env", "shell", "ini", "flagfile", "lines", "hadoop-xml", "text", "template", FormatRaw}
+
+// FormatRaw is a file of the component's, verbatim: the template it names,
+// byte for byte, no template language — a script, a dump, an archive.
+const FormatRaw = "raw"
 
 // FormatSecret is `x-pack-file` on a password leaf: not an emitter — the
 // referenced secret's key is mounted at the path, bytes untouched (a keytab, a
