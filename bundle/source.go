@@ -51,10 +51,6 @@ type dirSource struct{ dir string }
 
 // Dir is the source rooted at a composition or component directory; members
 // are the sibling directories.
-// MaxTemplate bounds one template of a component read from a registry: a raw
-// file is the component's data, byte for byte.
-const MaxTemplate = 1 << 30
-
 func Dir(dir string) Source { return dirSource{dir} }
 
 func (d dirSource) Root() (*Files, error) { return dirFiles(d.dir) }
@@ -90,6 +86,10 @@ func dirFiles(dir string) (*Files, error) {
 }
 
 // ---- a registry: the pack as oci-packer pushed it — read, never pulled
+
+// MaxTemplate bounds one template of a component read from a registry: a raw
+// file is the component's data, byte for byte.
+const MaxTemplate = 1 << 30
 
 type registrySource struct {
 	ctx     context.Context
